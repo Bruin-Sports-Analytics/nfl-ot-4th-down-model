@@ -5,7 +5,7 @@ RAW_DIR = Path("data/raw")
 RAW_DIR.mkdir(parents=True, exist_ok=True)
 
 def main():
-    seasons = list(range(2016, 2025))  # 2012-2024 inclusive
+    seasons = list(range(2016, 2025))  # 2016-2024 inclusive
     print(f"Downloading pbp for seasons: {seasons[0]}-{seasons[-1]} ...")
 
     pbp = nfl.import_pbp_data(seasons)
