@@ -191,6 +191,15 @@ cython_debug/
 # Ruff stuff:
 .ruff_cache/
 
+# data
+data/raw/
+data/processed/
+data/splits/
+
+# parquet
+*.parquet
+
+
 # PyPI configuration file
 .pypirc
 
