@@ -2,7 +2,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 
-RAW_PATH = Path("data/raw/pbp_2012_2024.parquet")
+RAW_PATH = Path("data/raw/pbp_2016_2024.parquet")
 OUT_DIR = Path("data/processed")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 
