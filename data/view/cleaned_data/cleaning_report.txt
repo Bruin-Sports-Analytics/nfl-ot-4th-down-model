@@ -1,0 +1,164 @@
+NFL OT 4th Down Model -- Data Cleaning Report
+============================================================
+Generated: 2026-02-19
+
+============================================================
+1. MISSING VALUES HANDLED
+============================================================
+
+[drive_summary]
+  drive_success_rate: 0.4% -> median(0.4)
+  drive_posteam_score_start: 0.0% -> median(10.0)
+  drive_start_yard_line: 2.5% -> unknown [categorical]
+  fixed_drive_result: 0.0% -> unknown [categorical]
+  drive_points: 0.0% -> median(0.0)
+
+[fourth_down_decisions]
+  temp: 34.5% -> FLAGGED >30% (not filled)
+  wind: 34.5% -> FLAGGED >30% (not filled)
+  kick_distance: 21.8% -> mean(43.652)
+  punt_attempt: 0.3% -> mode(1) [binary]
+  field_goal_attempt: 0.3% -> mode(0) [binary]
+
+[fourth_down_with_features]
+  temp: 34.5% -> FLAGGED >30% (not filled)
+  wind: 34.5% -> FLAGGED >30% (not filled)
+  kick_distance: 21.8% -> mean(43.652)
+  punt_attempt: 0.3% -> mode(1) [binary]
+  field_goal_attempt: 0.3% -> mode(0) [binary]
+  go_conv_rate: 33.7% -> FLAGGED >30% (not filled)
+  go_attempts: 32.6% -> FLAGGED >30% (not filled)
+  go_stop_rate: 33.1% -> FLAGGED >30% (not filled)
+  go_faced: 32.0% -> FLAGGED >30% (not filled)
+  epa_per_drive_roll6: 36.0% -> FLAGGED >30% (not filled)
+  success_rate_roll6: 36.0% -> FLAGGED >30% (not filled)
+  points_per_drive_roll6: 36.0% -> FLAGGED >30% (not filled)
+
+[ot_first_possession]
+  kick_distance: 10.4% -> mean(43.407)
+
+[team_rolling_offense]
+  epa_per_drive_roll6: 36.5% -> FLAGGED >30% (not filled)
+  success_rate_roll6: 36.5% -> FLAGGED >30% (not filled)
+  points_per_drive_roll6: 36.5% -> FLAGGED >30% (not filled)
+
+[team_season_4th_rates]
+  go_attempts: 50.3% -> FLAGGED >30% (not filled)
+  go_conv_rate: 50.9% -> FLAGGED >30% (not filled)
+  go_faced: 49.7% -> FLAGGED >30% (not filled)
+  go_stop_rate: 50.2% -> FLAGGED >30% (not filled)
+
+============================================================
+2. COLUMNS FLAGGED >30% MISSING (not auto-filled)
+============================================================
+  fourth_down_decisions: ['temp', 'wind']
+  fourth_down_with_features: ['temp', 'wind', 'go_conv_rate', 'go_attempts', 'go_stop_rate', 'go_faced', 'epa_per_drive_roll6', 'success_rate_roll6', 'points_per_drive_roll6']
+  team_rolling_offense: ['epa_per_drive_roll6', 'success_rate_roll6', 'points_per_drive_roll6']
+  team_season_4th_rates: ['go_attempts', 'go_conv_rate', 'go_faced', 'go_stop_rate']
+
+============================================================
+3. LEAKAGE COLUMNS DETECTED & REMOVED
+============================================================
+  fourth_down_decisions: ['qb_dropback', 'qb_scramble', 'wpa', 'go_converted', 'go_failed', 'fg_made', 'yards_gained', 'touchback']
+  fourth_down_with_features: ['qb_dropback', 'qb_scramble', 'wpa', 'go_converted', 'go_failed', 'fg_made', 'yards_gained', 'touchback']
+  ot_first_possession: ['fourth_down_converted', 'fourth_down_failed', 'field_goal_result', 'wpa', 'go_converted', 'fg_made']
+
+============================================================
+4. TYPE CORRECTIONS
+============================================================
+
+[drive_summary]
+  (none)
+
+[fourth_down_decisions]
+  (none)
+
+[fourth_down_with_features]
+  (none)
+
+[ot_first_possession]
+  go_converted: bool->int
+
+[team_rolling_offense]
+  (none)
+
+[team_season_4th_rates]
+  (none)
+
+============================================================
+5. OUTLIERS FLAGGED (not removed)
+============================================================
+
+[drive_summary]
+  IQR [drive_posteam_score_start]: 5 vals outside [-39.0,59.0] sample=[63.0, 70.0, 63.0]
+  IQR [drive_posteam_score_end]: 6 vals outside [-36.0,62.0] sample=[63.0, 70.0, 63.0]
+
+[fourth_down_decisions]
+  IQR [ydstogo]: 16 vals outside [-21.0,35.0] sample=[43.0, 37.0, 36.0]
+  IQR [score_differential]: 76 vals outside [-40.0,37.0] sample=[-41.0, -41.0, -41.0]
+  IQR [wind]: 58 vals outside [-13.0,29.0] sample=[36.0, 36.0, 36.0]
+  IQR [epa]: 1131 vals outside [-3.97,4.01] sample=[-4.165968, -4.0653863, 4.5783305]
+  IQR [wpa]: 1240 vals outside [-0.13,0.14] sample=[0.18693066, 0.13832384, 0.14081368]
+
+[fourth_down_with_features]
+  IQR [ydstogo]: 16 vals outside [-21.0,35.0] sample=[42.0, 39.0, 39.0]
+  IQR [score_differential]: 76 vals outside [-40.0,37.0] sample=[38.0, 44.0, 40.0]
+  IQR [wind]: 58 vals outside [-13.0,29.0] sample=[44.0, 44.0, 44.0]
+  IQR [epa]: 1131 vals outside [-3.97,4.01] sample=[-5.5255265, -5.569779, 4.4933925]
+  IQR [wpa]: 1240 vals outside [-0.13,0.14] sample=[-0.17714806, 0.13930574, -0.2255655]
+
+[ot_first_possession]
+  IQR [epa]: 1 vals outside [-4.17,3.89] sample=[-5.435014]
+
+============================================================
+6. FINAL CLEANED DATASET SHAPES
+============================================================
+  drive_summary: 53634 rows x 16 cols
+  fourth_down_decisions: 35871 rows x 28 cols
+  fourth_down_with_features: 35871 rows x 37 cols
+  ot_first_possession: 96 rows x 22 cols
+  team_rolling_offense: 4734 rows x 8 cols
+  team_season_4th_rates: 7924 rows x 9 cols
+  modeling_dataset: 1298 rows x 38 cols
+============================================================
+7. MODELING DATASET FIX NOTES
+============================================================
+  Issue 1: drive_summary merge produced 97 rows (96 expected).
+    Cause: game 2023_01_BUF_NYJ has fixed_drive=22 for both BUF and NYJ.
+    Fix: added 'posteam' as merge key -> 96 rows confirmed.
+
+  Issue 2: team_season_4th_rates merge fanned out (96->1298 rows).
+    Cause: ydstogo_bin/yardline_bin missing from OT table, so merge
+           used only season+posteam, creating a cartesian product.
+    Fix: derived ydstogo_bin and yardline_bin from raw values before merge.
+  Final modeling_dataset: 96 rows x 38 cols
+============================================================
+7. MODELING DATASET FIX NOTES
+============================================================
+  Issue 1: drive_summary merge produced 97 rows (96 expected).
+    Cause: game 2023_01_BUF_NYJ has fixed_drive=22 for BOTH BUF and NYJ.
+    Fix: added 'posteam' as merge key -> 96 rows confirmed.
+
+  Issue 2: team_season_4th_rates merge fanned out (96->1298 rows).
+    Cause: ydstogo_bin/yardline_bin absent from OT table;
+           merge used only season+posteam, causing cartesian product.
+    Fix: derived ydstogo_bin and yardline_bin from raw values;
+         merged offense rates on (season, posteam, ydstogo_bin, yardline_bin);
+         merged defense rates on (season, defteam, ydstogo_bin, yardline_bin).
+
+  Issue 3: go_faced / go_stop_rate were 100% null after offense-side merge.
+    Cause: these are defense-side metrics in team_season_4th_rates.
+    Fix: added separate defense-side merge for defteam.
+
+  Constant columns removed from modeling dataset (non-informative):
+    down (always 4), score_differential (always 0 in OT), first_ot_drive (== fixed_drive).
+
+  Final modeling_dataset: 96 rows x 35 cols
+
+  Rolling metrics (epa_per_drive_roll6, success_rate_roll6, points_per_drive_roll6):
+    ~38% missing -- expected for early-season games (no prior 6-game history).
+    Recommend imputation strategy decided at model training time.
+
+  off_go_conv_rate, off_go_attempts:
+    ~34% missing -- sparse historical 4th-down data for some team/bin combos.
+    Recommend treating as 'no prior data' with a prior or encoding as missing category.
