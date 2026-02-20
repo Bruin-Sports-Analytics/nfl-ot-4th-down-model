@@ -51,6 +51,11 @@ def make_defense_drive_summary():
     """
     Drive-level defensive stats: EPA allowed, yards allowed, points allowed, stop rate.
     One row per (game_id, defteam, fixed_drive).
+
+    Fixes applied:
+    - Drop "End of half" / "End of game" drives (clock-kill plays, not real defensive stops)
+    - Drop 3 drives with null fixed_drive_result (phantom data gaps)
+    - drive_points_allowed capped at 7 to exclude 2-pt conversion inflation
     """
     df = scan_defense()
 
@@ -59,7 +64,10 @@ def make_defense_drive_summary():
         .filter(
             (pl.col("season_type") == "REG") &
             pl.col("defteam").is_not_null() &
-            pl.col("posteam").is_not_null()
+            pl.col("posteam").is_not_null() &
+            # Fix 2 & 3: drop end-of-half/game drives and null drive results
+            pl.col("fixed_drive_result").is_not_null() &
+            ~pl.col("fixed_drive_result").is_in(["End of half", "End of game"])
         )
         .group_by([
             "game_id", "season", "week", "game_date",
@@ -70,12 +78,15 @@ def make_defense_drive_summary():
             pl.col("success").cast(pl.Float64).mean().alias("drive_offense_success_rate"),
             pl.sum("yards_gained").alias("drive_yards_allowed"),
             # points allowed = how much the offense scored on this drive
+            # Fix 4: cap at 7 to prevent 2-pt conversion plays inflating score to 8
             (pl.col("posteam_score_post").max() - pl.col("posteam_score").min())
-                .clip(lower_bound=0).alias("drive_points_allowed"),
+                .clip(lower_bound=0, upper_bound=7).alias("drive_points_allowed"),
             pl.first("fixed_drive_result").alias("fixed_drive_result"),
         ])
         .with_columns([
-            (1.0 - pl.col("drive_offense_success_rate")).alias("drive_stop_rate"),
+            # Fix 5: null success rate = pick-6 / special teams TD drives (0 yards, 0 pts)
+            # The offense was fully stopped, so stop_rate = 1.0
+            (1.0 - pl.col("drive_offense_success_rate")).fill_null(1.0).alias("drive_stop_rate"),
         ])
     )
 
@@ -145,11 +156,17 @@ def make_team_rolling_defense(window_games: int = 6):
 
 def make_defense_pressure_stats():
     """
-    Rolling pass-rush pressure metrics: sack rate, QB-hit rate, tackle-for-loss rate.
-    Rates are computed per passing play faced, then rolled over 6 games (leakage-safe).
+    Rolling pass-rush and run-stop pressure metrics.
+
+    Fix 1: tfl_rate was always 0 because tackled_for_loss is only set on rush plays,
+    but we were filtering to pass plays only. Now computed separately:
+    - sack_rate, qb_hit_rate: per pass play faced (unchanged, correct denominator)
+    - tfl_rate: TFLs per rush play faced (correct denominator)
+    Both are then joined and rolled together.
     """
     df = scan_defense()
 
+    # Pass pressure: sacks and QB hits (pass plays only)
     pass_plays = (
         df
         .filter(
@@ -160,22 +177,39 @@ def make_defense_pressure_stats():
                 (pl.col("sack").fill_null(0).cast(pl.Int8) == 1)
             )
         )
-    )
-
-    game_pressure = (
-        pass_plays
         .group_by(["game_id", "season", "week", "defteam"])
         .agg([
             pl.len().alias("pass_plays_faced"),
             pl.col("sack").fill_null(0).cast(pl.Float64).sum().alias("sacks"),
             pl.col("qb_hit").fill_null(0).cast(pl.Float64).sum().alias("qb_hits"),
-            pl.col("tackled_for_loss").fill_null(0).cast(pl.Float64).sum().alias("tfl"),
         ])
         .with_columns([
             (pl.col("sacks") / pl.col("pass_plays_faced")).alias("sack_rate"),
             (pl.col("qb_hits") / pl.col("pass_plays_faced")).alias("qb_hit_rate"),
-            (pl.col("tfl") / pl.col("pass_plays_faced")).alias("tfl_rate"),
         ])
+    )
+
+    # Fix 1: TFL rate on rush plays only (that's where tackled_for_loss is flagged)
+    rush_plays = (
+        df
+        .filter(
+            (pl.col("season_type") == "REG") &
+            pl.col("defteam").is_not_null() &
+            (pl.col("rush_attempt").fill_null(0).cast(pl.Int8) == 1)
+        )
+        .group_by(["game_id", "defteam"])
+        .agg([
+            pl.len().alias("rush_plays_faced"),
+            pl.col("tackled_for_loss").fill_null(0).cast(pl.Float64).sum().alias("tfl"),
+        ])
+        .with_columns([
+            (pl.col("tfl") / pl.col("rush_plays_faced")).alias("tfl_rate"),
+        ])
+    )
+
+    game_pressure = (
+        pass_plays
+        .join(rush_plays, on=["game_id", "defteam"], how="left")
         .rename({"defteam": "team"})
         .sort(["team", "season", "week"])
     )
