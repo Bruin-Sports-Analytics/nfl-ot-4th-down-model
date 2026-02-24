@@ -199,6 +199,12 @@ data/splits/
 # parquet
 *.parquet
 
+# macOS metadata
+.DS_Store
+
+# trained model binaries
+*.pkl
+
 
 # PyPI configuration file
 .pypirc
