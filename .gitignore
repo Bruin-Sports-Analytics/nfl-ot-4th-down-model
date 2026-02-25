@@ -195,6 +195,7 @@ cython_debug/
 data/raw/
 data/processed/
 data/splits/
+data/view/
 
 # parquet
 *.parquet
