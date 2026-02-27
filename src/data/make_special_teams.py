@@ -55,15 +55,16 @@ def scan_special_teams():
 
 def make_fg_attempts():
     """
-    Every regular-season field goal attempt with result, distance bucket, context,
+    Regular and postseason field goal attempts with result, distance bucket, context,
     and an iced_kicker flag (defense called timeout on the immediately prior play).
+    Postseason attempts are included to maximise training data for the model.
     """
     df = scan_special_teams()
 
     fg = (
         df
         .filter(
-            (pl.col("season_type") == "REG") &
+            pl.col("season_type").is_in(["REG", "POST"]) &
             (pl.col("field_goal_attempt").fill_null(0).cast(pl.Int8) == 1)
         )
         .with_columns([

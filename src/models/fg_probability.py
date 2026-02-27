@@ -7,21 +7,20 @@ Estimates P(FG made) given kick situation and kicker form.
 
 Inputs (for inference)
 ----------------------
-  kick_distance           : yards (int/float)
-  is_dome                 : bool  -- closed/dome stadium
-  wind                    : MPH   -- average wind speed; 0 for dome
-  wind_gust               : MPH   -- peak gust speed; defaults to wind if unknown
-  temp                    : °F    -- 72 for dome
-  is_precipitation        : bool  -- rain / snow / fog present
-  fg_make_rate_roll6      : float -- kicker's rolling 6-game make rate (by distance bucket)
-  kicker_career_make_rate : float -- kicker's career make rate (by distance bucket)
-  surface_is_grass        : bool  -- natural grass vs. artificial
-  altitude_ft             : float -- stadium altitude in feet (default 0 = sea level)
-  game_seconds_remaining  : float -- seconds left in game
-  score_differential      : float -- posteam score minus defteam score
-  is_overtime             : bool  -- True if attempt is in OT
-  kicking_at_home         : bool  -- kicking team is the home team
-  iced_kicker             : bool  -- defense called timeout on immediately prior play
+  kick_distance            : yards (int/float)
+  is_dome                  : bool  -- closed/dome stadium
+  wind                     : MPH   -- avg wind; used as gust fallback; 0 for dome
+  wind_gust                : MPH   -- peak gust speed; defaults to wind if unknown
+  temp                     : °F    -- 72 for dome
+  is_precipitation         : bool  -- rain / snow / fog present
+  fg_make_rate_roll6       : float -- kicker's rolling 6-game make rate (by distance bucket)
+  kicker_career_make_rate  : float -- kicker's career make rate (by distance bucket)
+  kicker_career_attempts   : int   -- prior career attempts in this distance bucket
+  surface_is_grass         : bool  -- natural grass vs. artificial
+  altitude_ft              : float -- stadium altitude in feet (default 0 = sea level)
+  game_seconds_remaining   : float -- seconds left in game
+  score_differential       : float -- posteam score minus defteam score
+  is_overtime              : bool  -- True if attempt is in OT
 
 Output
 ------
@@ -63,7 +62,6 @@ Usage
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Literal
 
@@ -71,7 +69,6 @@ import joblib
 import numpy as np
 import polars as pl
 from sklearn.calibration import CalibratedClassifierCV
-from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
 from sklearn.model_selection import (
@@ -81,6 +78,7 @@ from sklearn.model_selection import (
 )
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+from xgboost import XGBClassifier
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -95,26 +93,28 @@ MODELS_DIR.mkdir(exist_ok=True)
 MODEL_PATH = MODELS_DIR / "fg_prob_model.pkl"
 
 # ---------------------------------------------------------------------------
-# Feature configuration  (17 features)
+# Feature configuration  (15 features)
+# Removed: wind_adj, wind_x_distance (redundant with gust versions),
+#          kicking_at_home (negligible kicker effect), iced_kicker (too sparse, mixed evidence)
+# Added:   temp_x_distance (cold-air drag compounds at distance),
+#          kicker_career_attempts (reliability weight on career rate)
 # ---------------------------------------------------------------------------
 FEATURE_COLS: list[str] = [
     "kick_distance",            # primary driver of FG probability
     "is_dome",                  # controlled environment removes wind/temp effects
-    "wind_adj",                 # avg wind MPH; 0 for dome
-    "wind_x_distance",          # avg wind × distance interaction
-    "wind_gust",                # peak gust MPH (parsed from weather text); 0 for dome
-    "wind_gust_x_distance",     # gust × distance interaction — the kick-moment physics
+    "wind_gust",                # peak gust MPH (more physically relevant than avg wind); 0 for dome
+    "wind_gust_x_distance",     # gust × distance — kick-moment physics
     "temp_adj",                 # °F; 72 for dome
+    "temp_x_distance",          # cold-air drag effect compounds at longer distances
     "is_precipitation",         # rain / snow / fog (0/1)
     "fg_make_rate_roll6",       # kicker rolling 6-game make rate (recent form)
     "kicker_career_make_rate",  # kicker career make rate (stable baseline)
+    "kicker_career_attempts",   # attempts in this distance bucket (confidence weight on career rate)
     "surface_is_grass",         # natural grass vs artificial turf
     "altitude_ft",              # stadium altitude in feet (Denver = 5,280; others ≈ 0)
     "game_seconds_remaining",   # pressure: time remaining in game
     "score_differential",       # pressure: trailing/leading situation
     "is_overtime",              # maximum pressure — sudden death
-    "kicking_at_home",          # kicking team is playing at home
-    "iced_kicker",              # defense called timeout on immediately prior play
 ]
 
 TARGET = "fg_made"
@@ -160,14 +160,6 @@ _LEAGUE_AVG_MAKE_RATE = 0.80  # global fallback if bucket not recognised
 _HOME_TEAM_ALTITUDE_FT: dict[str, float] = {
     "DEN": 5280.0,
 }
-
-# Regex for parsing gust speed and precipitation from the weather text column.
-# Format examples:
-#   "Clear Temp: 79° F, Humidity: 40 %, Wind: NW 17 mph gusting to 28 mph"
-#   "Rain Temp: 52° F, Humidity: 88%, Wind: N 12 mph"
-_GUST_RE = re.compile(r"gusting to (\d+)", re.IGNORECASE)
-_PRECIP_RE = re.compile(r"rain|snow|sleet|fog|drizzle|precip|flurr", re.IGNORECASE)
-
 
 def _distance_to_bucket(yards: float) -> str:
     for lo, hi, label in _DISTANCE_BUCKETS:
@@ -281,12 +273,15 @@ def build_training_data() -> pl.DataFrame:
 
     if career is not None:
         df = df.join(
-            career.select(["game_id", "play_id", "kicker_career_make_rate"]),
+            career.select(["game_id", "play_id", "kicker_career_make_rate", "kicker_career_attempts"]),
             on=["game_id", "play_id"],
             how="left",
         )
     else:
-        df = df.with_columns(pl.lit(None).cast(pl.Float64).alias("kicker_career_make_rate"))
+        df = df.with_columns([
+            pl.lit(None).cast(pl.Float64).alias("kicker_career_make_rate"),
+            pl.lit(0).cast(pl.Int32).alias("kicker_career_attempts"),
+        ])
 
     # -- Core feature engineering -------------------------------------------
     df = df.with_columns([
@@ -365,6 +360,7 @@ def build_training_data() -> pl.DataFrame:
     df = df.with_columns([
         (pl.col("wind_adj")  * pl.col("kick_distance")).alias("wind_x_distance"),
         (pl.col("wind_gust") * pl.col("kick_distance")).alias("wind_gust_x_distance"),
+        (pl.col("temp_adj")  * pl.col("kick_distance")).alias("temp_x_distance"),
     ])
 
     # -- Altitude -----------------------------------------------------------
@@ -403,6 +399,9 @@ def build_training_data() -> pl.DataFrame:
               return_dtype=pl.Float64,
           )
           .alias("kicker_career_make_rate"),
+
+        # 0 prior attempts = first time in this distance bucket; model learns this means less certainty
+        pl.col("kicker_career_attempts").fill_null(0),
     ])
 
     return df
@@ -471,19 +470,25 @@ def train(
         ])
 
     elif model_type == "gradient_boost":
-        print(f"\nRunning RandomizedSearchCV (30 iterations, 5-fold) to tune GBM...")
-        base = GradientBoostingClassifier(random_state=42)
+        print(f"\nRunning RandomizedSearchCV (60 iterations, 5-fold) to tune XGBoost...")
+        base = XGBClassifier(
+            random_state=42,
+            eval_metric="logloss",
+            n_jobs=1,   # outer parallelism via RandomizedSearchCV n_jobs=-1
+        )
         param_dist = {
-            "n_estimators":     [300, 400, 500, 600],
-            "max_depth":        [2, 3, 4],
-            "learning_rate":    [0.01, 0.03, 0.05, 0.08, 0.1],
-            "subsample":        [0.7, 0.8, 0.9],
-            "min_samples_leaf": [10, 15, 20, 30],
-            "max_features":     [0.6, 0.7, 0.8, "sqrt"],
+            "n_estimators":    [300, 500, 700, 1000],
+            "max_depth":       [3, 4, 5, 6],
+            "learning_rate":   [0.01, 0.03, 0.05, 0.08, 0.1],
+            "subsample":       [0.7, 0.8, 0.9, 1.0],
+            "colsample_bytree":[0.6, 0.7, 0.8, 1.0],
+            "min_child_weight":[5, 10, 20, 30],
+            "reg_lambda":      [0.5, 1.0, 2.0, 5.0],
+            "gamma":           [0, 0.1, 0.3, 0.5],
         }
         search = RandomizedSearchCV(
             base, param_dist,
-            n_iter=30,
+            n_iter=60,
             scoring="neg_brier_score",
             cv=5,
             n_jobs=-1,
@@ -494,8 +499,15 @@ def train(
         print(f"Best hyperparameters: {search.best_params_}")
         print(f"Best CV Brier score:  {-search.best_score_:.4f}")
 
-        best_base = GradientBoostingClassifier(**search.best_params_, random_state=42)
-        model = CalibratedClassifierCV(best_base, cv=5, method="sigmoid")
+        best_base = XGBClassifier(
+            **search.best_params_,
+            random_state=42,
+            eval_metric="logloss",
+            n_jobs=1,
+        )
+        # isotonic regression calibration — more accurate than Platt (sigmoid)
+        # at this dataset size (~8k+ samples)
+        model = CalibratedClassifierCV(best_base, cv=5, method="isotonic")
 
     else:
         raise ValueError(f"Unknown model_type: {model_type!r}")
@@ -574,8 +586,7 @@ def predict_fg_prob(
     wind_gust: float | None = None,
     is_precipitation: bool = False,
     kicker_career_make_rate: float | None = None,
-    kicking_at_home: bool = False,
-    iced_kicker: bool = False,
+    kicker_career_attempts: int = 0,
     model_path: Path = MODEL_PATH,
 ) -> float:
     """
@@ -609,10 +620,8 @@ def predict_fg_prob(
         True if rain, snow, fog, or similar conditions are present.
     kicker_career_make_rate : float, optional
         Kicker's career FG make rate for this distance bucket. If None, league avg used.
-    kicking_at_home : bool, optional
-        True if the kicking team is the home team.
-    iced_kicker : bool, optional
-        True if the defense called timeout on the immediately preceding play.
+    kicker_career_attempts : int, optional
+        Number of prior career attempts in this distance bucket. Default 0 (unknown).
     model_path : Path, optional
         Path to the saved model artifact.
 
@@ -629,11 +638,10 @@ def predict_fg_prob(
     artifact = load_model(model_path)
     model    = artifact["model"]
 
-    wind_adj      = 0.0  if is_dome else float(wind)
     temp_adj      = 72.0 if is_dome else float(temp)
     wind_gust_val = 0.0  if is_dome else float(wind_gust if wind_gust is not None else wind)
-    wind_x_distance      = wind_adj      * float(kick_distance)
     wind_gust_x_distance = wind_gust_val * float(kick_distance)
+    temp_x_distance      = temp_adj      * float(kick_distance)
 
     bucket = _distance_to_bucket(float(kick_distance))
     if fg_make_rate_roll6 is None:
@@ -641,24 +649,23 @@ def predict_fg_prob(
     if kicker_career_make_rate is None:
         kicker_career_make_rate = _bucket_league_avg(bucket)
 
+    # Feature order must match FEATURE_COLS exactly (15 features)
     X = np.array([[
         float(kick_distance),
         int(is_dome),
-        wind_adj,
-        wind_x_distance,
         wind_gust_val,
         wind_gust_x_distance,
         temp_adj,
+        temp_x_distance,
         int(is_precipitation and not is_dome),
         float(fg_make_rate_roll6),
         float(kicker_career_make_rate),
+        int(kicker_career_attempts),
         int(surface_is_grass),
         float(altitude_ft),
         float(game_seconds_remaining),
         float(score_differential),
         int(is_overtime),
-        int(kicking_at_home),
-        int(iced_kicker),
     ]])
 
     return float(model.predict_proba(X)[0, 1])
@@ -686,14 +693,13 @@ def predict_fg_prob_batch(
 
     rows = []
     for s in situations:
-        dome      = s.get("is_dome", False)
-        dist      = float(s["kick_distance"])
-        wind_adj  = 0.0  if dome else float(s.get("wind", 0))
-        temp_adj  = 72.0 if dome else float(s.get("temp", 72))
-        gust_raw  = s.get("wind_gust", s.get("wind", 0))
-        gust      = 0.0  if dome else float(gust_raw)
-        wind_x_distance      = wind_adj * dist
+        dome     = s.get("is_dome", False)
+        dist     = float(s["kick_distance"])
+        temp_adj = 72.0 if dome else float(s.get("temp", 72))
+        gust_raw = s.get("wind_gust", s.get("wind", 0))
+        gust     = 0.0  if dome else float(gust_raw)
         wind_gust_x_distance = gust     * dist
+        temp_x_distance      = temp_adj * dist
 
         bucket = _distance_to_bucket(dist)
         roll   = s.get("fg_make_rate_roll6")
@@ -701,24 +707,23 @@ def predict_fg_prob_batch(
         if roll   is None: roll   = _bucket_league_avg(bucket)
         if career is None: career = _bucket_league_avg(bucket)
 
+        # Feature order must match FEATURE_COLS exactly (15 features)
         rows.append([
             dist,
             int(dome),
-            wind_adj,
-            wind_x_distance,
             gust,
             wind_gust_x_distance,
             temp_adj,
+            temp_x_distance,
             int(s.get("is_precipitation", False) and not dome),
             float(roll),
             float(career),
+            int(s.get("kicker_career_attempts", 0)),
             int(s.get("surface_is_grass", True)),
             float(s.get("altitude_ft", 0.0)),
             float(s.get("game_seconds_remaining", 1800.0)),
             float(s.get("score_differential", 0.0)),
             int(s.get("is_overtime", False)),
-            int(s.get("kicking_at_home", False)),
-            int(s.get("iced_kicker", False)),
         ])
 
     X = np.array(rows)
@@ -746,43 +751,43 @@ def main() -> None:
     examples = [
         dict(kick_distance=20, is_dome=True,  wind=0,  wind_gust=0,  temp=72,
              is_precipitation=False, fg_make_rate_roll6=0.95, kicker_career_make_rate=0.97,
-             surface_is_grass=False, altitude_ft=0, game_seconds_remaining=1800,
-             score_differential=0, kicking_at_home=True, iced_kicker=False,
-             label="Short indoor 20 yd — elite kicker"),
+             kicker_career_attempts=120, surface_is_grass=False, altitude_ft=0,
+             game_seconds_remaining=1800, score_differential=0,
+             label="Short indoor 20 yd — elite veteran kicker"),
         dict(kick_distance=38, is_dome=False, wind=5,  wind_gust=8,  temp=65,
              is_precipitation=False, fg_make_rate_roll6=0.83, kicker_career_make_rate=0.85,
-             surface_is_grass=True,  altitude_ft=0, game_seconds_remaining=900,
-             score_differential=0, kicking_at_home=True, iced_kicker=False,
+             kicker_career_attempts=60, surface_is_grass=True, altitude_ft=0,
+             game_seconds_remaining=900, score_differential=0,
              label="Mid-range 38 yd — avg kicker, mild day"),
         dict(kick_distance=47, is_dome=False, wind=12, wind_gust=18, temp=42,
              is_precipitation=False, fg_make_rate_roll6=0.81, kicker_career_make_rate=0.82,
-             surface_is_grass=True,  altitude_ft=0, game_seconds_remaining=300,
-             score_differential=-3, kicking_at_home=False, iced_kicker=False,
-             label="47 yd — trailing by 3, final mins, away"),
+             kicker_career_attempts=40, surface_is_grass=True, altitude_ft=0,
+             game_seconds_remaining=300, score_differential=-3,
+             label="47 yd — trailing by 3, final mins"),
         dict(kick_distance=47, is_dome=False, wind=12, wind_gust=18, temp=42,
              is_precipitation=False, fg_make_rate_roll6=0.81, kicker_career_make_rate=0.82,
-             surface_is_grass=True,  altitude_ft=5280, game_seconds_remaining=300,
-             score_differential=-3, kicking_at_home=True, iced_kicker=False,
-             label="Same 47 yd — but Denver (altitude + home)"),
+             kicker_career_attempts=40, surface_is_grass=True, altitude_ft=5280,
+             game_seconds_remaining=300, score_differential=-3,
+             label="Same 47 yd — Denver (altitude boost)"),
         dict(kick_distance=47, is_dome=False, wind=12, wind_gust=18, temp=42,
              is_precipitation=False, fg_make_rate_roll6=0.81, kicker_career_make_rate=0.82,
-             surface_is_grass=True,  altitude_ft=0, game_seconds_remaining=5,
-             score_differential=-3, kicking_at_home=False, iced_kicker=True,
-             label="Same 47 yd — ICED, last play of game"),
+             kicker_career_attempts=2, surface_is_grass=True, altitude_ft=0,
+             game_seconds_remaining=300, score_differential=-3,
+             label="Same 47 yd — rookie (only 2 prior attempts in bucket)"),
         dict(kick_distance=55, is_dome=False, wind=20, wind_gust=30, temp=30,
              is_precipitation=True,  fg_make_rate_roll6=0.72, kicker_career_make_rate=0.74,
-             surface_is_grass=False, altitude_ft=0, game_seconds_remaining=120,
-             score_differential=-3, kicking_at_home=False, iced_kicker=False,
+             kicker_career_attempts=25, surface_is_grass=False, altitude_ft=0,
+             game_seconds_remaining=120, score_differential=-3,
              label="55 yd — cold/snowy, gusting to 30, struggling kicker"),
         dict(kick_distance=60, is_dome=False, wind=25, wind_gust=35, temp=20,
              is_precipitation=True,  fg_make_rate_roll6=0.68, kicker_career_make_rate=0.70,
-             surface_is_grass=False, altitude_ft=0, game_seconds_remaining=5,
-             score_differential=-3, kicking_at_home=False, iced_kicker=False,
+             kicker_career_attempts=10, surface_is_grass=False, altitude_ft=0,
+             game_seconds_remaining=5, score_differential=-3,
              label="60 yd — blizzard, gusting to 35, last play"),
         dict(kick_distance=63, is_dome=False, wind=10, wind_gust=14, temp=55,
              is_precipitation=False, fg_make_rate_roll6=None, kicker_career_make_rate=None,
-             surface_is_grass=True,  altitude_ft=0, game_seconds_remaining=60,
-             score_differential=0, kicking_at_home=False, iced_kicker=False, is_overtime=True,
+             kicker_career_attempts=0, surface_is_grass=True, altitude_ft=0,
+             game_seconds_remaining=60, score_differential=0, is_overtime=True,
              label="63 yd OT — no kicker history, neutral weather"),
     ]
 
