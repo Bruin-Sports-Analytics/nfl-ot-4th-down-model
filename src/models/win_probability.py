@@ -155,10 +155,7 @@ _ENGINEERED_FEATURES: list[str] = [
     "score_x_time",
     "urgency",
     "clock_leverage",
-    # Score state dummies
-    "is_winning",
-    "is_tied",
-    "is_losing",
+    # Score state
     "abs_score_diff",
     "score_differential_sq",
     # Timeout advantage
@@ -343,6 +340,17 @@ class WinProbabilityModel:
         calibration.  Default: [2023, 2024].
     random_state:
         Seed for reproducibility.
+    season_decay:
+        Exponential decay factor applied to sample weights by season age.
+        A value of 0.80 weights the season one year back at 0.80×, two
+        years back at 0.64×, etc.  Ensures the model reflects current NFL
+        meta (offensive aggression, OT rule changes) without discarding
+        older data entirely.  Set to 1.0 to disable weighting.
+    n_calib_seasons:
+        Number of most-recent non-test seasons used for isotonic calibration
+        and XGBoost early stopping.  Using 2 seasons (default) rather than 1
+        gives the calibration mapping more diverse data, reducing the
+        overfitting that causes high mean_calib_error on held-out seasons.
     """
 
     def __init__(
@@ -359,6 +367,8 @@ class WinProbabilityModel:
         calibration_method: str = "isotonic",
         test_seasons: list[int] | None = None,
         random_state: int = 42,
+        season_decay: float = 0.80,
+        n_calib_seasons: int = 2,
     ) -> None:
         self.n_estimators = n_estimators
         self.max_depth = max_depth
@@ -372,6 +382,8 @@ class WinProbabilityModel:
         self.calibration_method = calibration_method
         self.test_seasons: list[int] = test_seasons if test_seasons is not None else [2023, 2024]
         self.random_state = random_state
+        self.season_decay = season_decay
+        self.n_calib_seasons = n_calib_seasons
 
         # Internal state — populated by fit()
         self._base_model: XGBClassifier | None = None
@@ -429,9 +441,6 @@ class WinProbabilityModel:
         out["clock_leverage"] = 1.0 / (np.abs(sd) + 1.0) / (sec + 60.0)
 
         # Score state
-        out["is_winning"] = (sd > 0).astype(int)
-        out["is_tied"] = (sd == 0).astype(int)
-        out["is_losing"] = (sd < 0).astype(int)
         out["abs_score_diff"] = np.abs(sd)
         out["score_differential_sq"] = sd ** 2
 
@@ -532,28 +541,38 @@ class WinProbabilityModel:
                 f"{self.test_seasons}.  Available: {all_seasons}"
             )
 
-        # Most recent training season → calibration + early-stopping validation
-        calib_season = max(train_seasons)
-        fit_seasons = [s for s in train_seasons if s != calib_season]
-
-        if not fit_seasons:
+        # Last n_calib_seasons non-test seasons → calibration + early-stopping validation
+        # Using multiple calibration seasons reduces isotonic overfitting to a single
+        # season's distribution, which was the root cause of the 6% calibration error.
+        n_calib = min(self.n_calib_seasons, len(train_seasons) - 1)
+        if n_calib < 1:
             logger.warning(
-                "Only one non-test season available (%s). "
-                "Using it for both fitting and calibration.",
-                calib_season,
+                "Only one non-test season available. "
+                "Using it for both fitting and calibration."
             )
-            fit_seasons = train_seasons
+            n_calib = 1
+        calib_seasons_used = train_seasons[-n_calib:]
+        fit_seasons = [s for s in train_seasons if s not in calib_seasons_used]
+        if not fit_seasons:
+            fit_seasons = list(calib_seasons_used)
 
         logger.info(
-            "Fit seasons: %s | Calibration season: %s | Test seasons: %s",
-            fit_seasons, calib_season, test_seasons_present,
+            "Fit seasons: %s | Calibration seasons: %s | Test seasons: %s",
+            fit_seasons, calib_seasons_used, test_seasons_present,
         )
 
-        X_fit = df_feat.loc[df_feat["season"].isin(fit_seasons), self._feature_cols].fillna(0.0).values
-        y_fit = df_feat.loc[df_feat["season"].isin(fit_seasons), "offense_team_won_game"].values
+        fit_mask = df_feat["season"].isin(fit_seasons)
+        X_fit = df_feat.loc[fit_mask, self._feature_cols].fillna(0.0).values
+        y_fit = df_feat.loc[fit_mask, "offense_team_won_game"].values
 
-        X_calib = df_feat.loc[df_feat["season"] == calib_season, self._feature_cols].fillna(0.0).values
-        y_calib = df_feat.loc[df_feat["season"] == calib_season, "offense_team_won_game"].values
+        # Recency weights: exponential decay by season age so recent NFL meta
+        # (OT rules, 4th-down aggressiveness) dominates without discarding old data.
+        max_fit_season = int(max(fit_seasons))
+        season_ages = (max_fit_season - df_feat.loc[fit_mask, "season"].values).astype(float)
+        sample_weights = self.season_decay ** season_ages
+
+        X_calib = df_feat.loc[df_feat["season"].isin(calib_seasons_used), self._feature_cols].fillna(0.0).values
+        y_calib = df_feat.loc[df_feat["season"].isin(calib_seasons_used), "offense_team_won_game"].values
 
         # ── Base XGBoost ──────────────────────────────────────────────────────
         # XGBoost is appropriate because:
@@ -585,6 +604,7 @@ class WinProbabilityModel:
 
         base.fit(
             X_fit, y_fit,
+            sample_weight=sample_weights,
             eval_set=[(X_calib, y_calib)],
             verbose=False,
         )
@@ -612,9 +632,9 @@ class WinProbabilityModel:
 
         # ── Metrics ───────────────────────────────────────────────────────────
         calib_probs = self._apply_calibrator(raw_calib)
-        logger.info("── Calibration season (%d) metrics ──────", calib_season)
-        self.calib_metrics_ = self._report_metrics(y_calib, calib_probs, split=f"calib({calib_season})")
-        self.calib_season_ = calib_season
+        logger.info("── Calibration seasons %s metrics ──────", calib_seasons_used)
+        self.calib_metrics_ = self._report_metrics(y_calib, calib_probs, split=f"calib({calib_seasons_used})")
+        self.calib_seasons_used_ = calib_seasons_used
 
         self.test_metrics_: dict[str, float] | None = None
         self.test_seasons_present_: list[int] = test_seasons_present
@@ -752,6 +772,7 @@ class WinProbabilityModel:
                     "subsample", "colsample_bytree", "min_child_weight",
                     "gamma", "reg_alpha", "reg_lambda",
                     "calibration_method", "test_seasons", "random_state",
+                    "season_decay", "n_calib_seasons",
                 )
             },
         }
@@ -1009,7 +1030,7 @@ def main() -> None:
 
     # Print metrics summary
     cm = model.calib_metrics_
-    print(f"\n       Calibration ({model.calib_season_}):  "
+    print(f"\n       Calibration {model.calib_seasons_used_}:  "
           f"log_loss={cm['log_loss']:.4f}  brier={cm['brier_score']:.4f}  "
           f"mean_calib_err={cm['mean_calib_error']:.4f}")
     if model.test_metrics_ is not None:
