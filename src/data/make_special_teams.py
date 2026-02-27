@@ -3,8 +3,9 @@ Special teams feature extraction for the NFL 4th-down / OT model.
 feature/special-teams branch
 
 Outputs (all written to data/processed/):
-  fg_attempts.parquet                 -- every field goal attempt with result and context
+  fg_attempts.parquet                 -- every field goal attempt (unblocked only for career stats)
   team_rolling_kicker.parquet         -- rolling 6-game FG make rate by distance bucket
+  kicker_career_make_rate.parquet     -- career FG make rate by distance bucket (leakage-safe)
   punt_attempts.parquet               -- every punt with distance and field position context
   team_rolling_punter.parquet         -- rolling 6-game avg punt distance and inside-20 rate
   team_rolling_kickoff.parquet        -- rolling 6-game touchback rate and return yards allowed
@@ -54,7 +55,8 @@ def scan_special_teams():
 
 def make_fg_attempts():
     """
-    Every regular-season field goal attempt with result, distance bucket, and context.
+    Every regular-season field goal attempt with result, distance bucket, context,
+    and an iced_kicker flag (defense called timeout on the immediately prior play).
     """
     df = scan_special_teams()
 
@@ -93,27 +95,53 @@ def make_fg_attempts():
             "kicker_player_id", "kicker_player_name",
             "epa", "play_id",
         ])
+        .collect()
+    )
+
+    # ---------------------------------------------------------
+    # Icing detection: flag FG attempts where the defense called
+    # a timeout on the immediately preceding play in the game.
+    # Requires scanning ALL plays to find prior-play timeouts.
+    # ---------------------------------------------------------
+    icing = (
+        pl.scan_parquet(str(RAW))
+        .select(["game_id", "play_id", "timeout", "timeout_team", "defteam"])
+        .collect()
+        .sort(["game_id", "play_id"])
+        .with_columns([
+            (
+                (pl.col("timeout").shift(1).over("game_id").fill_null(0).cast(pl.Int8) == 1) &
+                (pl.col("timeout_team").shift(1).over("game_id") == pl.col("defteam"))
+            ).fill_null(False).cast(pl.Int8).alias("iced_kicker")
+        ])
+        .select(["game_id", "play_id", "iced_kicker"])
+    )
+
+    fg = (
+        fg
+        .join(icing, on=["game_id", "play_id"], how="left")
+        .with_columns(pl.col("iced_kicker").fill_null(0))
     )
 
     out_path = OUT / "fg_attempts.parquet"
-    fg.sink_parquet(out_path)
+    fg.write_parquet(str(out_path))
     print(f"Wrote {out_path}")
 
 
 def make_team_rolling_kicker(window_games: int = 6):
     """
     Rolling FG make rate per team by distance bucket (leakage-safe).
-    Key feature for 4th down FG decisions: how reliable is this kicker right now?
+    Blocked kicks are excluded: a block is a defensive play, not a kicker accuracy event.
     """
     fg = pl.scan_parquet(str(OUT / "fg_attempts.parquet"))
 
     game_fg = (
         fg
+        .filter(~pl.col("fg_blocked"))  # exclude blocks from make-rate computation
         .group_by(["season", "week", "game_id", "posteam", "distance_bucket"])
         .agg([
             pl.len().alias("fg_attempts"),
             pl.col("fg_made").cast(pl.Float64).mean().alias("fg_make_rate"),
-            pl.col("fg_blocked").cast(pl.Float64).mean().alias("fg_block_rate"),
         ])
         .rename({"posteam": "team"})
         .sort(["team", "season", "week"])
@@ -137,6 +165,62 @@ def make_team_rolling_kicker(window_games: int = 6):
 
     out_path = OUT / "team_rolling_kicker.parquet"
     rolled.sink_parquet(out_path)
+    print(f"Wrote {out_path}")
+
+
+def make_kicker_career_stats():
+    """
+    Kicker career FG make rate by distance bucket — leakage-safe.
+
+    For each attempt, kicker_career_make_rate = (makes in ALL prior career games
+    in the same distance bucket) / (attempts in all prior career games in that bucket).
+    Blocked kicks are excluded because they do not reflect kicker accuracy.
+
+    Unlike the rolling 6-game rate (which captures recent form), this provides a
+    stable long-term baseline for how reliable a kicker is at each distance range.
+    """
+    fg = pl.read_parquet(str(OUT / "fg_attempts.parquet"))
+
+    # Blocks are defensive events — exclude from career accuracy computation
+    fg = fg.filter(~pl.col("fg_blocked"))
+
+    # Sort chronologically so cumulative sums accumulate in time order
+    fg = fg.sort(["kicker_player_id", "distance_bucket", "season", "week", "play_id"])
+
+    fg = fg.with_columns([
+        # Cumulative makes within (kicker, distance_bucket)
+        pl.col("fg_made").cast(pl.Int32)
+          .cum_sum()
+          .over(["kicker_player_id", "distance_bucket"])
+          .alias("_cum_makes"),
+        # Cumulative total attempts (constant 1 per row → running count)
+        (pl.col("fg_made").cast(pl.Int32) * 0 + 1)
+          .cum_sum()
+          .over(["kicker_player_id", "distance_bucket"])
+          .alias("_cum_n"),
+    ]).with_columns([
+        # Prior makes = cumsum minus current attempt (exclude self)
+        (pl.col("_cum_makes") - pl.col("fg_made").cast(pl.Int32)).alias("_prior_makes"),
+        # Prior attempts = total count minus 1 (exclude current row)
+        (pl.col("_cum_n") - 1).alias("_prior_n"),
+    ]).with_columns([
+        pl.when(pl.col("_prior_n") > 0)
+          .then(
+              pl.col("_prior_makes").cast(pl.Float64)
+              / pl.col("_prior_n").cast(pl.Float64)
+          )
+          .otherwise(pl.lit(None).cast(pl.Float64))
+          .alias("kicker_career_make_rate"),
+        pl.col("_prior_n").alias("kicker_career_attempts"),
+    ])
+
+    result = fg.select([
+        "game_id", "play_id", "kicker_player_id", "distance_bucket",
+        "kicker_career_make_rate", "kicker_career_attempts",
+    ])
+
+    out_path = OUT / "kicker_career_make_rate.parquet"
+    result.write_parquet(str(out_path))
     print(f"Wrote {out_path}")
 
 
@@ -272,11 +356,14 @@ def make_team_rolling_kickoff(window_games: int = 6):
 
 
 def main():
-    print("Building FG attempts table...")
+    print("Building FG attempts table (with icing flag)...")
     make_fg_attempts()
 
-    print("Building rolling kicker stats...")
+    print("Building rolling kicker stats (blocks excluded)...")
     make_team_rolling_kicker(window_games=6)
+
+    print("Building kicker career stats...")
+    make_kicker_career_stats()
 
     print("Building punt attempts table...")
     make_punt_attempts()
