@@ -7,12 +7,16 @@ Estimates P(FG made) given kick situation and kicker form.
 
 Inputs (for inference)
 ----------------------
-  kick_distance       : yards (int/float)
-  is_dome             : bool  -- closed/dome stadium
-  wind                : MPH   -- 0 for dome
-  temp                : °F    -- 72 for dome
-  fg_make_rate_roll6  : float -- kicker's rolling 6-game make rate (by distance bucket)
-  surface_is_grass    : bool  -- natural grass vs. artificial
+  kick_distance           : yards (int/float)
+  is_dome                 : bool  -- closed/dome stadium
+  wind                    : MPH   -- 0 for dome
+  temp                    : °F    -- 72 for dome
+  fg_make_rate_roll6      : float -- kicker's rolling 6-game make rate (by distance bucket)
+  surface_is_grass        : bool  -- natural grass vs. artificial
+  altitude_ft             : float -- stadium altitude in feet (default 0 = sea level)
+  game_seconds_remaining  : float -- seconds left in game (default 1800 = halftime)
+  score_differential      : float -- posteam score minus defteam score
+  is_overtime             : bool  -- True if attempt is in OT
 
 Output
 ------
@@ -23,6 +27,16 @@ Training Data
   All regular-season FG attempts 2016-2024 (from fg_attempts.parquet).
   Weather and stadium features joined from raw play-by-play.
   Rolling kicker make rate joined from team_rolling_kicker.parquet.
+
+  Train/test split: stratified by season — each season contributes
+  ~80% to train and ~20% to test, so every era of play is represented
+  in both sets.
+
+Model
+-----
+  Gradient Boosting Classifier with Platt scaling calibration.
+  Hyperparameters selected via RandomizedSearchCV (30 iterations, 5-fold CV,
+  optimising Brier score).
 
 Usage
 -----
@@ -48,7 +62,11 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
-from sklearn.model_selection import cross_val_score, train_test_split
+from sklearn.model_selection import (
+    RandomizedSearchCV,
+    cross_val_score,
+    train_test_split,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -68,28 +86,65 @@ MODEL_PATH = MODELS_DIR / "fg_prob_model.pkl"
 # Feature configuration
 # ---------------------------------------------------------------------------
 FEATURE_COLS: list[str] = [
-    "kick_distance",      # primary driver of FG probability
-    "is_dome",            # controlled environment removes wind/temp effects
-    "wind_adj",           # MPH; 0 for dome
-    "temp_adj",           # °F;  72 for dome
-    "fg_make_rate_roll6", # kicker rolling 6-game make rate at this distance range
-    "surface_is_grass",   # natural grass vs artificial turf
+    "kick_distance",           # primary driver of FG probability
+    "is_dome",                 # controlled environment removes wind/temp effects
+    "wind_adj",                # MPH; 0 for dome
+    "wind_x_distance",         # wind * distance interaction: high wind hurts long kicks far more
+    "temp_adj",                # °F; 72 for dome
+    "fg_make_rate_roll6",      # kicker rolling 6-game make rate at this distance range
+    "surface_is_grass",        # natural grass vs artificial turf
+    "altitude_ft",             # stadium altitude in feet (Denver = 5,280; others ≈ 0)
+    "game_seconds_remaining",  # pressure: time remaining in game
+    "score_differential",      # pressure: trailing/leading situation
+    "is_overtime",             # maximum pressure — sudden death
 ]
 
 TARGET = "fg_made"
 
-# League-average FG make rate used when rolling kicker stat is unavailable
-# (e.g., early season with no prior attempts in that distance bucket)
-_LEAGUE_AVG_MAKE_RATE = 0.80
-
-# Distance bucket boundaries must match make_special_teams.py
+# ---------------------------------------------------------------------------
+# Distance bucket configuration
+# ---------------------------------------------------------------------------
+# 5-yard wide in short/mid range; 3-yard wide at 56+ so that long-range
+# buckets are still granular while having enough sample for rolling rates.
+# Must stay in sync with make_special_teams.py.
 _DISTANCE_BUCKETS = [
     (0,  30, "0-30"),
-    (31, 40, "31-40"),
-    (41, 50, "41-50"),
+    (31, 35, "31-35"),
+    (36, 40, "36-40"),
+    (41, 45, "41-45"),
+    (46, 50, "46-50"),
     (51, 55, "51-55"),
-    (56, 999, "56+"),
+    (56, 58, "56-58"),
+    (59, 61, "59-61"),
+    (62, 64, "62-64"),
+    (65, 999, "65+"),
 ]
+
+# Distance-aware league-average make rates used when rolling kicker stat is
+# unavailable (e.g., early season / first attempt in a bucket).
+# A 63-yarder should fall back to ~34%, not the old flat 80%.
+_LEAGUE_AVG_BY_BUCKET: dict[str, float] = {
+    "0-30":  0.94,
+    "31-35": 0.92,
+    "36-40": 0.88,
+    "41-45": 0.83,
+    "46-50": 0.77,
+    "51-55": 0.67,
+    "56-58": 0.57,
+    "59-61": 0.46,
+    "62-64": 0.34,
+    "65+":   0.22,
+}
+# Fallback when the bucket itself is unrecognised
+_LEAGUE_AVG_MAKE_RATE = 0.80
+
+# ---------------------------------------------------------------------------
+# Altitude lookup: only Denver has a meaningful effect (~5,280 ft).
+# All other NFL venues are < 2,100 ft — treated as sea-level baseline (0).
+# ---------------------------------------------------------------------------
+_HOME_TEAM_ALTITUDE_FT: dict[str, float] = {
+    "DEN": 5280.0,
+}
 
 
 def _distance_to_bucket(yards: float) -> str:
@@ -97,7 +152,12 @@ def _distance_to_bucket(yards: float) -> str:
     for lo, hi, label in _DISTANCE_BUCKETS:
         if lo <= yards <= hi:
             return label
-    return "56+"
+    return "65+"
+
+
+def _bucket_league_avg(bucket: str) -> float:
+    """Return the distance-aware league-average make rate for a given bucket."""
+    return _LEAGUE_AVG_BY_BUCKET.get(bucket, _LEAGUE_AVG_MAKE_RATE)
 
 
 # ---------------------------------------------------------------------------
@@ -110,8 +170,7 @@ _VIEW = DATA_DIR / "view"
 def _load_table(name: str) -> pl.DataFrame:
     """
     Load a processed table by name.  Tries data/processed/<name>.parquet first;
-    falls back to data/view/<name>.csv if the parquet is missing (e.g. the
-    special-teams parquets haven't been regenerated on this branch yet).
+    falls back to data/view/<name>.csv if the parquet is missing.
     """
     parquet_path = PROCESSED / f"{name}.parquet"
     if parquet_path.exists():
@@ -152,7 +211,6 @@ def build_training_data() -> pl.DataFrame:
         )
 
     # -- Weather / stadium from raw PBP --------------------------------------
-    # Only scan the columns we need to keep memory usage low
     weather_want = ["game_id", "wind", "temp", "roof", "surface"]
     raw_schema = set(pl.scan_parquet(str(RAW)).collect_schema().names())
     weather_want = [c for c in weather_want if c in raw_schema]
@@ -166,8 +224,6 @@ def build_training_data() -> pl.DataFrame:
 
     # -- Rolling kicker stats (parquet preferred, CSV fallback) --------------
     kicker_roll = _load_table("team_rolling_kicker")
-
-    # Rename so join keys align with fg_attempts column names
     kicker_roll = kicker_roll.rename({"team": "posteam"})
 
     # -- Join ----------------------------------------------------------------
@@ -201,9 +257,18 @@ def build_training_data() -> pl.DataFrame:
 
         # Target variable as integer
         pl.col("fg_made").cast(pl.Int8),
+
+        # Overtime flag (qtr == 5)
+        (pl.col("qtr") == 5)
+          .fill_null(False)
+          .cast(pl.Int8)
+          .alias("is_overtime"),
+
+        # Home team extracted from game_id: format "YYYY_WW_AWAY_HOME"
+        pl.col("game_id").str.split("_").list.get(3).alias("home_team"),
     ])
 
-    # Dome-adjusted weather: 0 mph wind, 72°F inside domes
+    # Dome-adjusted weather
     df = df.with_columns([
         pl.when(pl.col("is_dome") == 1)
           .then(pl.lit(0.0))
@@ -214,10 +279,32 @@ def build_training_data() -> pl.DataFrame:
           .then(pl.lit(72.0))
           .otherwise(pl.col("temp").cast(pl.Float64))
           .alias("temp_adj"),
+    ])
 
-        # Fill missing rolling rate with league average
-        pl.col("fg_make_rate_roll6")
-          .fill_null(_LEAGUE_AVG_MAKE_RATE)
+    # Wind × distance interaction: high wind hurts long kicks far more than short ones
+    df = df.with_columns([
+        (pl.col("wind_adj") * pl.col("kick_distance")).alias("wind_x_distance"),
+    ])
+
+    # Altitude: Denver = 5,280 ft; all other home teams → 0
+    df = df.with_columns([
+        pl.col("home_team")
+          .map_elements(
+              lambda t: _HOME_TEAM_ALTITUDE_FT.get(t, 0.0),
+              return_dtype=pl.Float64,
+          )
+          .alias("altitude_ft"),
+    ])
+
+    # Distance-aware fill for missing rolling kicker rate
+    df = df.with_columns([
+        pl.struct(["fg_make_rate_roll6", "distance_bucket"])
+          .map_elements(
+              lambda row: row["fg_make_rate_roll6"]
+              if row["fg_make_rate_roll6"] is not None
+              else _bucket_league_avg(row["distance_bucket"]),
+              return_dtype=pl.Float64,
+          )
           .alias("fg_make_rate_roll6"),
     ])
 
@@ -230,8 +317,8 @@ def build_training_data() -> pl.DataFrame:
 
 def train(
     df: pl.DataFrame,
-    model_type: Literal["logistic", "gradient_boost"] = "logistic",
-    test_seasons: list[int] | None = None,
+    model_type: Literal["logistic", "gradient_boost"] = "gradient_boost",
+    test_size: float = 0.2,
 ) -> tuple:
     """
     Train the FG probability model and report evaluation metrics.
@@ -241,18 +328,15 @@ def train(
     df : pl.DataFrame
         Output of build_training_data().
     model_type : {"logistic", "gradient_boost"}
-        Which base learner to use.
-    test_seasons : list[int] | None
-        Seasons to hold out for final evaluation (temporal split).
-        Defaults to [2023, 2024].
+        Which base learner to use. Defaults to gradient_boost.
+    test_size : float
+        Fraction of each season's attempts held out for evaluation.
+        Stratified so every season contributes to both train and test.
 
     Returns
     -------
     (model, metrics_dict)
     """
-    if test_seasons is None:
-        test_seasons = [2023, 2024]
-
     required = FEATURE_COLS + [TARGET, "season"]
     available = [c for c in required if c in df.columns]
     clean = df.select(available).drop_nulls()
@@ -260,19 +344,25 @@ def train(
     print(f"Total FG attempts after dropping nulls: {len(clean):,}")
     print(f"Overall make rate: {clean[TARGET].mean():.3f}")
 
-    # Temporal train / test split
-    train_mask = ~clean["season"].is_in(test_seasons)
-    train_df = clean.filter(train_mask)
-    test_df  = clean.filter(~train_mask)
+    # Stratified split: each season contributes ~80% train / ~20% test.
+    # This ensures every era of play (rule changes, talent pool shifts) is
+    # represented in both sets, unlike a pure temporal split.
+    X_all = clean.select(FEATURE_COLS).to_numpy()
+    y_all = clean[TARGET].to_numpy()
+    seasons_arr = clean["season"].to_numpy()
 
-    print(f"\nTrain seasons  : {clean.filter(train_mask)['season'].min()}"
-          f" – {train_df['season'].max()}  ({len(train_df):,} attempts)")
-    print(f"Test seasons   : {test_seasons}  ({len(test_df):,} attempts)")
+    X_train, X_test, y_train, y_test, seasons_train, seasons_test = train_test_split(
+        X_all, y_all, seasons_arr,
+        test_size=test_size,
+        random_state=42,
+        stratify=seasons_arr,
+    )
 
-    X_train = train_df.select(FEATURE_COLS).to_numpy()
-    y_train = train_df[TARGET].to_numpy()
-    X_test  = test_df.select(FEATURE_COLS).to_numpy()
-    y_test  = test_df[TARGET].to_numpy()
+    print(f"\nTrain: {len(y_train):,} attempts  |  Test: {len(y_test):,} attempts")
+    print(f"Season distribution in test set:")
+    unique_seasons, counts = np.unique(seasons_test, return_counts=True)
+    for s, c in zip(unique_seasons, counts):
+        print(f"  {s}: {c} attempts")
 
     # -- Build model ---------------------------------------------------------
     if model_type == "logistic":
@@ -285,22 +375,44 @@ def train(
                 random_state=42,
             )),
         ])
+
     elif model_type == "gradient_boost":
-        # Wrap with Platt scaling for well-calibrated probabilities
-        base = GradientBoostingClassifier(
-            n_estimators=300,
-            max_depth=3,
-            learning_rate=0.05,
-            subsample=0.8,
-            min_samples_leaf=20,
+        # Step 1: Find best hyperparameters via RandomizedSearchCV.
+        # Optimise Brier score (probability calibration quality).
+        print(f"\nRunning RandomizedSearchCV (30 iterations, 5-fold) to tune GBM...")
+        base = GradientBoostingClassifier(random_state=42)
+        param_dist = {
+            "n_estimators":     [300, 400, 500, 600],
+            "max_depth":        [2, 3, 4],
+            "learning_rate":    [0.01, 0.03, 0.05, 0.08, 0.1],
+            "subsample":        [0.7, 0.8, 0.9],
+            "min_samples_leaf": [10, 15, 20, 30],
+            "max_features":     [0.6, 0.7, 0.8, "sqrt"],
+        }
+        search = RandomizedSearchCV(
+            base, param_dist,
+            n_iter=30,
+            scoring="neg_brier_score",
+            cv=5,
+            n_jobs=-1,
             random_state=42,
+            verbose=0,
         )
-        model = CalibratedClassifierCV(base, cv=5, method="sigmoid")
+        search.fit(X_train, y_train)
+        print(f"Best hyperparameters: {search.best_params_}")
+        print(f"Best CV Brier score:  {-search.best_score_:.4f}")
+
+        # Step 2: Wrap the best estimator with Platt scaling calibration.
+        # CalibratedClassifierCV re-fits with 5-fold CV internally, collecting
+        # OOF predictions to fit the sigmoid calibration layer.
+        best_base = GradientBoostingClassifier(**search.best_params_, random_state=42)
+        model = CalibratedClassifierCV(best_base, cv=5, method="sigmoid")
+
     else:
         raise ValueError(f"Unknown model_type: {model_type!r}")
 
     # -- Cross-validation on training set ------------------------------------
-    print(f"\nCross-validating {model_type} model (5-fold, training seasons)...")
+    print(f"\nCross-validating {model_type} model (5-fold, training data)...")
     auc_cv   = cross_val_score(model, X_train, y_train, cv=5, scoring="roc_auc")
     brier_cv = cross_val_score(model, X_train, y_train, cv=5,
                                scoring="neg_brier_score")
@@ -309,6 +421,18 @@ def train(
 
     # -- Fit on all training data -------------------------------------------
     model.fit(X_train, y_train)
+
+    # -- Feature importance (GBM only) --------------------------------------
+    if model_type == "gradient_boost" and hasattr(model, "calibrated_classifiers_"):
+        importances = np.mean(
+            [cc.estimator.feature_importances_
+             for cc in model.calibrated_classifiers_],
+            axis=0,
+        )
+        print("\nFeature importances (GBM, averaged across calibration folds):")
+        for feat, imp in sorted(zip(FEATURE_COLS, importances), key=lambda x: -x[1]):
+            bar = "█" * int(imp * 200)
+            print(f"  {feat:<30} {imp:.4f}  {bar}")
 
     # -- Hold-out evaluation ------------------------------------------------
     y_prob = model.predict_proba(X_test)[:, 1]
@@ -319,7 +443,7 @@ def train(
         "test_n"          : len(y_test),
         "test_make_rate"  : float(y_test.mean()),
     }
-    print(f"\nHold-out test ({test_seasons}):")
+    print(f"\nHold-out test (stratified 20% across all seasons):")
     print(f"  ROC-AUC     : {metrics['test_roc_auc']:.4f}")
     print(f"  Brier score : {metrics['test_brier_score']:.4f}")
     print(f"  Log-loss    : {metrics['test_log_loss']:.4f}")
@@ -354,8 +478,12 @@ def predict_fg_prob(
     is_dome: bool,
     wind: float,
     temp: float,
-    fg_make_rate_roll6: float = _LEAGUE_AVG_MAKE_RATE,
+    fg_make_rate_roll6: float | None = None,
     surface_is_grass: bool = True,
+    altitude_ft: float = 0.0,
+    game_seconds_remaining: float = 1800.0,
+    score_differential: float = 0.0,
+    is_overtime: bool = False,
     model_path: Path = MODEL_PATH,
 ) -> float:
     """
@@ -364,23 +492,28 @@ def predict_fg_prob(
     Parameters
     ----------
     kick_distance : float
-        Distance of the attempt in yards (e.g., 47 for a kick from the 30).
+        Distance of the attempt in yards.
     is_dome : bool
-        True if the stadium has a fixed dome or retractable roof currently
-        closed (i.e., wind and temperature are controlled).
+        True if the stadium has a fixed dome or retractable roof closed.
     wind : float
         Wind speed in MPH. Pass 0 if is_dome is True.
     temp : float
-        Temperature in °F. Pass 72 (or any comfortable indoor temp)
-        if is_dome is True.
+        Temperature in °F. Pass 72 if is_dome is True.
     fg_make_rate_roll6 : float, optional
         Kicker's rolling 6-game FG make rate for the matching distance bucket.
-        Look up from team_rolling_kicker.parquet using (season, week, team,
-        distance_bucket).  Defaults to the league average (0.80).
+        If None, the distance-aware league average is used.
     surface_is_grass : bool, optional
-        True for natural grass, False for artificial turf. Default True.
+        True for natural grass, False for artificial turf.
+    altitude_ft : float, optional
+        Stadium altitude in feet. Default 0 (sea level). Use 5280 for Denver.
+    game_seconds_remaining : float, optional
+        Seconds remaining in the game. Default 1800 (mid-game).
+    score_differential : float, optional
+        Kicking team score minus opponent score. Negative = trailing.
+    is_overtime : bool, optional
+        True if the attempt is in overtime.
     model_path : Path, optional
-        Path to the saved model artifact (pkl).
+        Path to the saved model artifact.
 
     Returns
     -------
@@ -397,17 +530,26 @@ def predict_fg_prob(
     artifact = load_model(model_path)
     model    = artifact["model"]
 
-    # Dome: zero out environmental factors
     wind_adj = 0.0  if is_dome else float(wind)
     temp_adj = 72.0 if is_dome else float(temp)
+    wind_x_distance = wind_adj * float(kick_distance)
+
+    if fg_make_rate_roll6 is None:
+        bucket = _distance_to_bucket(float(kick_distance))
+        fg_make_rate_roll6 = _bucket_league_avg(bucket)
 
     X = np.array([[
         float(kick_distance),
         int(is_dome),
         wind_adj,
+        wind_x_distance,
         temp_adj,
         float(fg_make_rate_roll6),
         int(surface_is_grass),
+        float(altitude_ft),
+        float(game_seconds_remaining),
+        float(score_differential),
+        int(is_overtime),
     ]])
 
     return float(model.predict_proba(X)[0, 1])
@@ -423,7 +565,8 @@ def predict_fg_prob_batch(
     Parameters
     ----------
     situations : list[dict]
-        Each dict must contain the same keys as predict_fg_prob parameters.
+        Each dict may contain the same keys as predict_fg_prob parameters.
+        Missing keys use the same defaults as predict_fg_prob.
 
     Returns
     -------
@@ -434,7 +577,9 @@ def predict_fg_prob_batch(
     --------
     >>> probs = predict_fg_prob_batch([
     ...     {"kick_distance": 25, "is_dome": True,  "wind": 0,  "temp": 72},
-    ...     {"kick_distance": 55, "is_dome": False, "wind": 20, "temp": 30},
+    ...     {"kick_distance": 55, "is_dome": False, "wind": 20, "temp": 30,
+    ...      "altitude_ft": 5280, "game_seconds_remaining": 30,
+    ...      "score_differential": -3},
     ... ])
     """
     artifact = load_model(model_path)
@@ -443,15 +588,28 @@ def predict_fg_prob_batch(
     rows = []
     for s in situations:
         dome     = s.get("is_dome", False)
+        dist     = float(s["kick_distance"])
         wind_adj = 0.0  if dome else float(s.get("wind", 0))
         temp_adj = 72.0 if dome else float(s.get("temp", 72))
+        wind_x_distance = wind_adj * dist
+
+        roll = s.get("fg_make_rate_roll6")
+        if roll is None:
+            bucket = _distance_to_bucket(dist)
+            roll = _bucket_league_avg(bucket)
+
         rows.append([
-            float(s["kick_distance"]),
+            dist,
             int(dome),
             wind_adj,
+            wind_x_distance,
             temp_adj,
-            float(s.get("fg_make_rate_roll6", _LEAGUE_AVG_MAKE_RATE)),
+            float(roll),
             int(s.get("surface_is_grass", True)),
+            float(s.get("altitude_ft", 0.0)),
+            float(s.get("game_seconds_remaining", 1800.0)),
+            float(s.get("score_differential", 0.0)),
+            int(s.get("is_overtime", False)),
         ])
 
     X = np.array(rows)
@@ -471,35 +629,49 @@ def main() -> None:
     df = build_training_data()
     print(f"      Dataset shape: {df.shape}")
 
-    print("\n[2/3] Training Logistic Regression model...")
-    model, metrics = train(df, model_type="logistic", test_seasons=[2023, 2024])
+    print("\n[2/3] Training Gradient Boosting model (with hyperparameter tuning)...")
+    model, metrics = train(df, model_type="gradient_boost")
     save_model(model)
 
     print("\n[3/3] Example predictions (from saved model):")
     examples = [
         dict(kick_distance=20, is_dome=True,  wind=0,  temp=72,
              fg_make_rate_roll6=0.95, surface_is_grass=False,
+             altitude_ft=0, game_seconds_remaining=1800, score_differential=0,
              label="Short indoor 20 yd — elite kicker"),
         dict(kick_distance=38, is_dome=False, wind=5,  temp=65,
              fg_make_rate_roll6=0.83, surface_is_grass=True,
+             altitude_ft=0, game_seconds_remaining=900, score_differential=0,
              label="Mid-range outdoor 38 yd — avg kicker, mild day"),
         dict(kick_distance=47, is_dome=False, wind=12, temp=42,
              fg_make_rate_roll6=0.81, surface_is_grass=True,
-             label="Mid-long outdoor 47 yd — avg kicker, cool/windy"),
+             altitude_ft=0, game_seconds_remaining=300, score_differential=-3,
+             label="Mid-long 47 yd — trailing by 3, final minutes"),
+        dict(kick_distance=47, is_dome=False, wind=12, temp=42,
+             fg_make_rate_roll6=0.81, surface_is_grass=True,
+             altitude_ft=5280, game_seconds_remaining=300, score_differential=-3,
+             label="Mid-long 47 yd — same but Denver (altitude)"),
         dict(kick_distance=55, is_dome=False, wind=20, temp=30,
              fg_make_rate_roll6=0.72, surface_is_grass=False,
-             label="Long outdoor 55 yd — struggling kicker, cold/windy"),
-        dict(kick_distance=62, is_dome=False, wind=25, temp=20,
+             altitude_ft=0, game_seconds_remaining=120, score_differential=-3,
+             label="Long 55 yd — struggling kicker, cold/windy, must-make"),
+        dict(kick_distance=60, is_dome=False, wind=25, temp=20,
              fg_make_rate_roll6=0.68, surface_is_grass=False,
-             label="Very long 62 yd — cold blizzard game"),
+             altitude_ft=0, game_seconds_remaining=5, score_differential=-3,
+             label="Very long 60 yd — blizzard, last play of game"),
+        dict(kick_distance=63, is_dome=False, wind=10, temp=55,
+             fg_make_rate_roll6=None, surface_is_grass=True,
+             altitude_ft=0, game_seconds_remaining=60, score_differential=0,
+             is_overtime=True,
+             label="63 yd OT — no rolling history, neutral weather"),
     ]
 
-    print(f"\n  {'Scenario':<52} {'P(make)':>8}")
-    print("  " + "-" * 62)
+    print(f"\n  {'Scenario':<58} {'P(make)':>8}")
+    print("  " + "-" * 68)
     for ex in examples:
         label = ex.pop("label")
         prob  = predict_fg_prob(**ex)
-        print(f"  {label:<52} {prob:>7.3f}")
+        print(f"  {label:<58} {prob:>7.3f}")
 
     print("\nDone.")
 

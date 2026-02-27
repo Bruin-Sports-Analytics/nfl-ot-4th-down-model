@@ -68,12 +68,19 @@ def make_fg_attempts():
             (pl.col("field_goal_result") == "made").alias("fg_made"),
             (pl.col("field_goal_result") == "blocked").alias("fg_blocked"),
 
-            # distance buckets relevant for 4th down FG decisions
+            # distance buckets for rolling kicker make rate aggregation.
+            # 5-yard wide in the short/mid range, 3-yard wide at 56+
+            # so that the long-range buckets are meaningful but still granular.
             pl.when(pl.col("kick_distance") <= 30).then(pl.lit("0-30"))
-             .when(pl.col("kick_distance") <= 40).then(pl.lit("31-40"))
-             .when(pl.col("kick_distance") <= 50).then(pl.lit("41-50"))
+             .when(pl.col("kick_distance") <= 35).then(pl.lit("31-35"))
+             .when(pl.col("kick_distance") <= 40).then(pl.lit("36-40"))
+             .when(pl.col("kick_distance") <= 45).then(pl.lit("41-45"))
+             .when(pl.col("kick_distance") <= 50).then(pl.lit("46-50"))
              .when(pl.col("kick_distance") <= 55).then(pl.lit("51-55"))
-             .otherwise(pl.lit("56+"))
+             .when(pl.col("kick_distance") <= 58).then(pl.lit("56-58"))
+             .when(pl.col("kick_distance") <= 61).then(pl.lit("59-61"))
+             .when(pl.col("kick_distance") <= 64).then(pl.lit("62-64"))
+             .otherwise(pl.lit("65+"))
              .alias("distance_bucket"),
         ])
         .select([
