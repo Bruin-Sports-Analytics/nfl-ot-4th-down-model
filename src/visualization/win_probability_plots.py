@@ -51,10 +51,30 @@ def _get_test_predictions(
     model: WinProbabilityModel,
     df: pd.DataFrame,
 ) -> tuple[np.ndarray, np.ndarray, pd.DataFrame]:
-    """Return (y_true, y_pred, df_test) for the model's held-out test seasons."""
+    """Return (y_true, y_pred, df_test) for the model's held-out test seasons.
+
+    OT plays are transformed via OTStateTransformer before prediction so the
+    residuals-by-state chart reflects the actual model output rather than
+    bypassing the transformer.
+    """
     test_mask = df["season"].isin(model.test_seasons)
     df_test = df[test_mask].copy()
-    df_feat = model._engineer_features(df_test)
+
+    # Apply OT transformation to OT rows before batch feature engineering
+    ot_mask = df_test.get("is_overtime", pd.Series(0, index=df_test.index)).astype(bool)
+    df_scored = df_test.copy()
+
+    if ot_mask.any():
+        ot_rows = df_test[ot_mask].copy()
+        transformed = ot_rows.apply(
+            lambda row: pd.Series(model._ot_transformer.transform(row.to_dict())),
+            axis=1,
+        )
+        for col in ["is_overtime", "overtime_possession_number", "quarter", "seconds_remaining"]:
+            if col in transformed.columns:
+                df_scored.loc[ot_mask, col] = transformed[col].values
+
+    df_feat = model._engineer_features(df_scored)
     X = df_feat[model._feature_cols].fillna(0.0).values
     raw = model._base_model.predict_proba(X)[:, 1]
     y_pred = model._apply_calibrator(raw)

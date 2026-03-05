@@ -14,8 +14,9 @@ Plots saved to ``reports/figures/``:
 
   1. benchmark_reliability.png   — calibration curves: Ours vs nflfastR (all plays)
   2. ot_reliability.png          — calibration curves: Ours vs nflfastR (OT only)
-  3. metrics_comparison.png      — Brier / log-loss / calib-error bar chart
+  3. metrics_comparison.png      — Brier / log-loss / calib-error / accuracy bar chart
   4. ot_phase_analysis.png       — residuals + calibration by OT possession phase
+  5. accuracy_by_confidence.png  — accuracy within each 10%-wide WP confidence band
 """
 
 from __future__ import annotations
@@ -76,7 +77,7 @@ def load_eval_dataframe(
     if parquet_path is None:
         parquet_path = _DATA_DIR / "pbp_2016_2024.parquet"
 
-    load_cols = [
+    required_cols = [
         "game_id", "posteam", "defteam", "home_team", "away_team",
         "season", "week", "qtr", "game_seconds_remaining",
         "score_differential", "down", "ydstogo", "yardline_100",
@@ -84,7 +85,13 @@ def load_eval_dataframe(
         "drive", "result",
         "wp",   # nflfastR pre-play WP for posteam
     ]
-    df = pd.read_parquet(parquet_path, columns=load_cols)
+    optional_cols = ["spread_line", "home_opening_kickoff"]
+
+    df_full = pd.read_parquet(parquet_path, columns=None)
+    available = set(df_full.columns)
+    extra = [c for c in optional_cols if c in available]
+    df = df_full[required_cols + extra].copy()
+    del df_full
 
     # ── Same filters as build_training_data() ─────────────────────────────────
     required_notna = [
@@ -112,6 +119,19 @@ def load_eval_dataframe(
     df["defense_timeouts"]   = df["defteam_timeouts_remaining"].fillna(3).clip(0, 3).astype(int)
     df["score_differential"] = df["score_differential"].astype(float)
     df["is_overtime"]        = (df["quarter"] >= 5).astype(int)
+
+    # Optional enrichment — match build_training_data() exactly
+    df["home"] = (df["posteam"] == df["home_team"]).astype(float)
+    if "spread_line" in df.columns:
+        df["posteam_spread"] = np.where(
+            df["posteam"] == df["home_team"],
+            df["spread_line"].fillna(0.0),
+            -df["spread_line"].fillna(0.0),
+        )
+    else:
+        df["posteam_spread"] = 0.0
+    df["guaranteed_possession"] = 0.0
+
     df["offense_team_strength_rating"] = 0.0
     df["defense_team_strength_rating"] = 0.0
 
@@ -125,7 +145,19 @@ def load_eval_dataframe(
     df = df.rename(columns={"wp": "fastr_wp"})
 
     # ── Run our model on the same rows ─────────────────────────────────────────
-    df_feat = model._engineer_features(df)
+    # Apply OT transformation to OT rows so predict_proba() logic is matched.
+    ot_mask = df["is_overtime"].astype(bool)
+    df_scored = df.copy()
+    if ot_mask.any():
+        transformed = df[ot_mask].apply(
+            lambda row: pd.Series(model._ot_transformer.transform(row.to_dict())),
+            axis=1,
+        )
+        for col in ["is_overtime", "overtime_possession_number", "quarter", "seconds_remaining"]:
+            if col in transformed.columns:
+                df_scored.loc[ot_mask, col] = transformed[col].values
+
+    df_feat = model._engineer_features(df_scored)
     X = df_feat[model._feature_cols].fillna(0.0).values
     raw = model._base_model.predict_proba(X)[:, 1]
     df["our_wp"] = model._apply_calibrator(raw)
@@ -145,16 +177,19 @@ def compute_metrics(
     label: str,
     n_bins: int = 10,
 ) -> dict:
-    """Return log_loss, brier, mean_calib_err and the calibration curve arrays."""
-    ll   = log_loss(y_true, y_pred)
-    bs   = brier_score_loss(y_true, y_pred)
+    """Return log_loss, brier, mean_calib_err, accuracy and the calibration curve arrays."""
+    ll       = log_loss(y_true, y_pred)
+    bs       = brier_score_loss(y_true, y_pred)
     frac_pos, mean_pred = calibration_curve(y_true, y_pred, n_bins=n_bins, strategy="quantile")
-    mce  = float(np.mean(np.abs(frac_pos - mean_pred)))
-    logger.info("[%s]  n=%d  log_loss=%.4f  brier=%.4f  mean_calib_err=%.4f",
-                label, len(y_true), ll, bs, mce)
+    mce      = float(np.mean(np.abs(frac_pos - mean_pred)))
+    accuracy = float(((y_pred >= 0.5).astype(int) == y_true).mean())
+    logger.info(
+        "[%s]  n=%d  log_loss=%.4f  brier=%.4f  mean_calib_err=%.4f  accuracy=%.4f",
+        label, len(y_true), ll, bs, mce, accuracy,
+    )
     return {
         "label": label, "n": len(y_true),
-        "log_loss": ll, "brier": bs, "mean_calib_err": mce,
+        "log_loss": ll, "brier": bs, "mean_calib_err": mce, "accuracy": accuracy,
         "frac_pos": frac_pos, "mean_pred": mean_pred,
     }
 
@@ -271,12 +306,12 @@ def plot_metrics_comparison(
     df: pd.DataFrame,
     save_path: Path | None = None,
 ) -> plt.Figure:
-    """Side-by-side bar chart of Brier score, log-loss, and mean calibration
-    error for Our model vs nflfastR across three data slices:
+    """Side-by-side bar chart of Brier score, log-loss, mean calibration error,
+    and accuracy for Our model vs nflfastR across five data slices:
       • All test plays
       • Overtime plays only
       • OT 1st possession  /  OT 2nd possession  /  OT sudden death
-    Lower is better for all three metrics.
+    Lower is better for the first three metrics; higher is better for accuracy.
     """
     def _slice_metrics(mask, tag):
         sub = df[mask]
@@ -291,6 +326,7 @@ def plot_metrics_comparison(
                 "Brier score": m["brier"],
                 "Log-loss": m["log_loss"],
                 "Calib error": m["mean_calib_err"],
+                "Accuracy": m["accuracy"],
             })
         return rows
 
@@ -305,19 +341,20 @@ def plot_metrics_comparison(
     rows += _slice_metrics(ot & (pn >= 2),  "OT — sudden death")
 
     results = pd.DataFrame(rows)
-    metrics  = ["Brier score", "Log-loss", "Calib error"]
+    # (metric_name, lower_is_better)
+    metrics  = [("Brier score", True), ("Log-loss", True), ("Calib error", True), ("Accuracy", False)]
     slices   = results["slice"].unique()
 
-    fig, axes = plt.subplots(1, 3, figsize=(16, 5))
-    fig.suptitle("Our Model vs nflfastR — Lower is Better", fontsize=13)
+    fig, axes = plt.subplots(1, 4, figsize=(21, 5))
+    fig.suptitle("Our Model vs nflfastR — Metrics Comparison", fontsize=13)
 
     colours = {"Our model": "#1565C0", "nflfastR": "#E65100"}
     x       = np.arange(len(slices))
     width   = 0.35
 
-    for ax, metric in zip(axes, metrics):
+    for ax, (metric, lower_is_better) in zip(axes, metrics):
         for i, (model_name, colour) in enumerate(colours.items()):
-            vals  = [
+            vals = [
                 results.loc[(results["slice"] == s) & (results["model"] == model_name), metric].values[0]
                 if len(results.loc[(results["slice"] == s) & (results["model"] == model_name)]) > 0
                 else np.nan
@@ -330,7 +367,8 @@ def plot_metrics_comparison(
 
         ax.set_xticks(x)
         ax.set_xticklabels(slices, rotation=20, ha="right", fontsize=9)
-        ax.set_title(metric, fontsize=11)
+        direction = "↓ lower" if lower_is_better else "↑ higher"
+        ax.set_title(f"{metric}  ({direction} is better)", fontsize=10)
         ax.set_ylabel(metric)
         ax.spines[["top", "right"]].set_visible(False)
         if ax is axes[0]:
@@ -344,7 +382,93 @@ def plot_metrics_comparison(
     return fig
 
 
-# ── Plot 4: OT phase deep-dive ────────────────────────────────────────────────
+# ── Plot 4 (new): Accuracy by confidence band ─────────────────────────────────
+
+def plot_accuracy_by_confidence(
+    df: pd.DataFrame,
+    save_path: Path | None = None,
+) -> plt.Figure:
+    """Binary prediction accuracy within each 10%-wide WP confidence band.
+
+    For each band [k·10%, (k+1)·10%), a prediction is "correct" when the model
+    predicts win (WP ≥ 0.5) and the team won, or predicts loss (WP < 0.5) and
+    the team lost.
+
+    The reference line shows expected accuracy for a perfectly calibrated model:
+      • bands below 50% → predict loss → expected accuracy = 1 − band_midpoint
+      • bands at/above 50% → predict win → expected accuracy = band_midpoint
+    This forms a V-shape centred at 50 % (worst case ≈ 50 % accuracy in the
+    40–60 % bands, best case ≈ 95 % in the 0–10 % and 90–100 % bands).
+    """
+    bands = [(i / 10, (i + 1) / 10) for i in range(10)]
+    band_labels = [f"{int(lo * 100)}–{int(hi * 100)}%" for lo, hi in bands]
+    midpoints   = [(lo + hi) / 2 for lo, hi in bands]
+    ref_acc     = [max(m, 1 - m) for m in midpoints]   # V-shape reference
+
+    def _band_accuracy(wp_col: str) -> tuple[list[float], list[int]]:
+        accs, ns = [], []
+        for i, (lo, hi) in enumerate(bands):
+            if i == len(bands) - 1:
+                mask = df[wp_col] >= lo
+            else:
+                mask = (df[wp_col] >= lo) & (df[wp_col] < hi)
+            sub = df[mask]
+            if len(sub) == 0:
+                accs.append(np.nan)
+                ns.append(0)
+            else:
+                correct = ((sub[wp_col] >= 0.5).astype(int) == sub["offense_team_won_game"]).mean()
+                accs.append(float(correct))
+                ns.append(len(sub))
+        return accs, ns
+
+    ours_acc, ours_n = _band_accuracy("our_wp")
+    fast_acc, fast_n = _band_accuracy("fastr_wp")
+
+    x      = np.arange(len(bands))
+    width  = 0.35
+    colours = {"Our model": "#1565C0", "nflfastR": "#E65100"}
+
+    fig, ax = plt.subplots(figsize=(14, 5))
+
+    for i, (name, accs, ns) in enumerate([
+        ("Our model", ours_acc, ours_n),
+        ("nflfastR",  fast_acc, fast_n),
+    ]):
+        offset = (i - 0.5) * width
+        colour = colours[name]
+        bars = ax.bar(x + offset, accs, width, label=name,
+                      color=colour, alpha=0.80, edgecolor="none")
+        # Annotate with sample counts
+        for j, (bar, n) in enumerate(zip(bars, ns)):
+            if n > 0:
+                ax.text(bar.get_x() + bar.get_width() / 2, bar.get_height() + 0.005,
+                        f"n={n:,}", ha="center", va="bottom", fontsize=6.5, color=colour)
+
+    ax.plot(x, ref_acc, "k--", lw=1.5, label="Perfect calibration (reference)", alpha=0.6)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(band_labels, fontsize=9)
+    ax.set_xlabel("Predicted WP band")
+    ax.set_ylabel("Accuracy (fraction of plays correctly classified)")
+    ax.set_ylim(0.40, 1.05)
+    ax.set_title(
+        f"Accuracy by WP Confidence Band — Our Model vs nflfastR\n"
+        f"Test seasons {sorted(df['season'].unique())}  |  n={len(df):,}",
+        pad=10,
+    )
+    ax.legend(fontsize=10)
+    ax.spines[["top", "right"]].set_visible(False)
+
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight")
+        logger.info("Saved accuracy-by-confidence chart → %s", save_path)
+    return fig
+
+
+# ── Plot 5: OT phase deep-dive ────────────────────────────────────────────────
 
 def plot_ot_phase_analysis(
     df: pd.DataFrame,
@@ -496,7 +620,7 @@ def main() -> None:
         m = compute_metrics(df["offense_team_won_game"].values, df[col].values,
                             f"{model_name} | all", n_bins=10)
         print(f"  {model_name}  log_loss={m['log_loss']:.4f}  brier={m['brier']:.4f}  "
-              f"calib_err={m['mean_calib_err']:.4f}")
+              f"calib_err={m['mean_calib_err']:.4f}  accuracy={m['accuracy']:.4f}")
 
     print("\n-- OT-only metrics ----------------------------------------------")
     df_ot = df[df["is_overtime"] == 1]
@@ -504,19 +628,32 @@ def main() -> None:
         m = compute_metrics(df_ot["offense_team_won_game"].values, df_ot[col].values,
                             f"{model_name} | OT", n_bins=8)
         print(f"  {model_name}  log_loss={m['log_loss']:.4f}  brier={m['brier']:.4f}  "
-              f"calib_err={m['mean_calib_err']:.4f}")
+              f"calib_err={m['mean_calib_err']:.4f}  accuracy={m['accuracy']:.4f}")
+
+    print("\n-- Per-season metrics -------------------------------------------")
+    for season in sorted(df["season"].unique()):
+        df_s = df[df["season"] == season]
+        print(f"  Season {season}  (n={len(df_s):,})")
+        for model_name, col in [("Our model", "our_wp"), ("nflfastR ", "fastr_wp")]:
+            m = compute_metrics(df_s["offense_team_won_game"].values, df_s[col].values,
+                                f"{season} | {model_name}", n_bins=8)
+            print(f"    {model_name}  log_loss={m['log_loss']:.4f}  brier={m['brier']:.4f}  "
+                  f"calib_err={m['mean_calib_err']:.4f}  accuracy={m['accuracy']:.4f}")
 
     print()
-    print("[1/4]  Benchmark reliability diagram (all plays)...")
+    print("[1/5]  Benchmark reliability diagram (all plays)...")
     plot_benchmark_reliability(df, save_path=_FIG_DIR / "benchmark_reliability.png")
 
-    print("[2/4]  OT-only reliability diagram...")
+    print("[2/5]  OT-only reliability diagram...")
     plot_ot_reliability(df, save_path=_FIG_DIR / "ot_reliability.png")
 
-    print("[3/4]  Metrics comparison bar chart...")
+    print("[3/5]  Metrics comparison bar chart (4 metrics)...")
     plot_metrics_comparison(df, save_path=_FIG_DIR / "metrics_comparison.png")
 
-    print("[4/4]  OT phase deep-dive...")
+    print("[4/5]  Accuracy by confidence band...")
+    plot_accuracy_by_confidence(df, save_path=_FIG_DIR / "accuracy_by_confidence.png")
+
+    print("[5/5]  OT phase deep-dive...")
     plot_ot_phase_analysis(df, save_path=_FIG_DIR / "ot_phase_analysis.png")
 
     print(f"\nAll plots saved to {_FIG_DIR}")
