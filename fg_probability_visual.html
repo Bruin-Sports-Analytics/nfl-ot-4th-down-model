@@ -10,6 +10,8 @@
     html, body { height: 100%; background: #0d1f17; color: #f8f8f2; font-family: 'DM Mono', monospace; }
     input[type=range] { -webkit-appearance: none; width: 100%; height: 5px; background: #2d5a3d; border-radius: 3px; outline: none; cursor: pointer; }
     input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #f5c518; cursor: pointer; box-shadow: 0 0 6px rgba(245,197,24,0.4); }
+    input[type=range]:disabled { opacity: 0.35; cursor: not-allowed; }
+    input[type=range]:disabled::-webkit-slider-thumb { cursor: not-allowed; }
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: #0d1f17; }
     ::-webkit-scrollbar-thumb { background: #2d5a3d; border-radius: 3px; }
@@ -21,23 +23,26 @@
     #header span { font-size: 10px; color: #8aaa96; letter-spacing: 0.06em; }
     #body { display: flex; flex: 1; overflow: hidden; }
 
-    #sidebar { width: 240px; background: #0a1a10; border-right: 1px solid #1e4a2e; padding: 18px; overflow-y: auto; flex-shrink: 0; }
-    .gauge-wrap { text-align: center; margin-bottom: 16px; }
-    .divider { height: 1px; background: #1e4a2e; margin: 14px 0; }
-    .section-label { font-size: 9px; color: #3a6a4a; letter-spacing: 0.1em; margin-bottom: 10px; }
-    .slider-row { margin-bottom: 13px; }
+    #sidebar { width: 264px; background: #0a1a10; border-right: 1px solid #1e4a2e; padding: 16px; overflow-y: auto; flex-shrink: 0; }
+    .gauge-wrap { text-align: center; margin-bottom: 14px; }
+    .divider { height: 1px; background: #1e4a2e; margin: 12px 0; }
+    .section-label { font-size: 9px; color: #3a6a4a; letter-spacing: 0.1em; margin-bottom: 9px; }
+    .slider-row { margin-bottom: 11px; }
+    .slider-row.dimmed .row-label,
+    .slider-row.dimmed .row-val { opacity: 0.35; }
     .slider-row .row-top { display: flex; justify-content: space-between; margin-bottom: 4px; }
-    .slider-row .row-label { color: #8aaa96; font-size: 11px; letter-spacing: 0.04em; }
+    .slider-row .row-label { color: #8aaa96; font-size: 11px; letter-spacing: 0.03em; }
     .slider-row .row-val { color: #f5c518; font-size: 12px; font-weight: 700; }
-    .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+    .toggle-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 11px; }
     .toggle-row > span { color: #8aaa96; font-size: 11px; }
-    .toggle-btn { width: 42px; height: 22px; border-radius: 11px; border: none; cursor: pointer; position: relative; transition: background 0.2s; }
+    .toggle-row.dimmed { opacity: 0.35; pointer-events: none; }
+    .toggle-btn { width: 42px; height: 22px; border-radius: 11px; border: none; cursor: pointer; position: relative; transition: background 0.2s; flex-shrink: 0; }
     .toggle-knob { position: absolute; top: 2px; width: 18px; height: 18px; border-radius: 50%; transition: left 0.2s; }
-    .dome-note { background: #1a3a26; border-radius: 6px; padding: 7px 9px; font-size: 9px; color: #8aaa96; }
+    .dome-note { background: #1a3a26; border-radius: 6px; padding: 7px 9px; font-size: 9px; color: #8aaa96; line-height: 1.5; }
 
     #main { flex: 1; padding: 20px; overflow-y: auto; min-width: 0; }
     #tab-bar { display: flex; border: 1px solid #1e4a2e; border-radius: 8px; overflow: hidden; margin-bottom: 18px; }
-    .tab-btn { flex: 1; padding: 9px 0; background: transparent; border: none; color: #4a7a5a; cursor: pointer; font-size: 10px; letter-spacing: 0.06em; transition: all 0.2s; border-right: 1px solid #1e4a2e; }
+    .tab-btn { flex: 1; padding: 9px 0; background: transparent; border: none; color: #4a7a5a; cursor: pointer; font-size: 10px; letter-spacing: 0.05em; transition: all 0.2s; border-right: 1px solid #1e4a2e; }
     .tab-btn:last-child { border-right: none; }
     .tab-btn.active { background: #1a472a; color: #f5c518; font-weight: 700; }
     .tab-content { display: none; }
@@ -50,24 +55,24 @@
     .grid-5 { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; margin-top: 16px; }
     .grid-4 { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
-    .grid-3 { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 12px; }
+    .grid-auto { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 12px; }
     .span-all { grid-column: 1 / -1; }
 
     .stat-card { background: #0f2219; border-radius: 8px; padding: 12px 8px; text-align: center; }
     .stat-card .big { font-family: 'Bebas Neue', sans-serif; font-size: 20px; }
-    .stat-card .lbl { font-size: 9px; color: #4a7a5a; margin-top: 2px; }
+    .stat-card .lbl { font-size: 9px; color: #4a7a5a; margin-top: 2px; white-space: pre-line; line-height: 1.5; }
     .kicker-card { background: #0f2219; border-radius: 8px; padding: 14px 8px; text-align: center; }
     .kicker-card .big { font-family: 'Bebas Neue', sans-serif; font-size: 22px; }
-    .kicker-card .lbl { font-size: 9px; color: #8aaa96; white-space: pre-line; margin-top: 4px; }
+    .kicker-card .lbl { font-size: 9px; color: #8aaa96; white-space: pre-line; margin-top: 4px; line-height: 1.5; }
     .surface-box { background: #0f2219; border-radius: 8px; padding: 14px; margin-top: 16px; }
     .surface-box .hdr { font-size: 9px; color: #3a6a4a; margin-bottom: 10px; }
     .surface-row { display: flex; gap: 12px; }
     .surface-item { flex: 1; text-align: center; }
     .surface-item .big { font-family: 'Bebas Neue', sans-serif; font-size: 24px; }
-    .surface-item .sub { font-size: 10px; color: #8aaa96; }
+    .surface-item .sub { font-size: 9px; color: #8aaa96; white-space: pre-line; line-height: 1.5; margin-top: 3px; }
     .dome-warn { font-size: 9px; color: #4a7a5a; text-align: center; margin-top: 6px; }
 
-    .radar-bar-item { background: #0f2219; border-radius: 8px; padding: 10px 12px; display: flex; justify-content: space-between; align-items: center; }
+    .radar-bar-item { background: #0f2219; border-radius: 8px; padding: 9px 12px; display: flex; justify-content: space-between; align-items: center; }
     .radar-bar-item > span { font-size: 10px; color: #8aaa96; }
     .rbar-right { display: flex; align-items: center; gap: 6px; }
     .rbar-track { width: 48px; height: 4px; background: #1e4a2e; border-radius: 2px; }
@@ -79,7 +84,7 @@
 <div id="app">
   <div id="header">
     <h1>🏈 FG PROBABILITY EXPLORER</h1>
-    <span>NFL 2016–2024 · LOGISTIC MODEL</span>
+    <span>NFL 2016–2024 · MODEL EXPLORER (XGBOOST APPROX.)</span>
   </div>
   <div id="body">
 
@@ -97,24 +102,52 @@
             font-family="'DM Mono',monospace">P(MAKE)</text>
         </svg>
       </div>
+
       <div class="divider"></div>
-      <div class="section-label">SITUATION CONTROLS</div>
+      <div class="section-label">SITUATION</div>
       <div class="slider-row">
         <div class="row-top"><span class="row-label">KICK DISTANCE</span><span class="row-val" id="v-dist">40 yd</span></div>
-        <input type="range" id="s-dist" min="18" max="62" value="40">
+        <input type="range" id="s-dist" min="18" max="65" value="40">
       </div>
-      <div class="slider-row">
-        <div class="row-top"><span class="row-label">WIND SPEED</span><span class="row-val" id="v-wind">8 mph</span></div>
+      <div class="slider-row" id="row-wind">
+        <div class="row-top"><span class="row-label">AVG WIND</span><span class="row-val" id="v-wind">8 mph</span></div>
         <input type="range" id="s-wind" min="0" max="30" value="8">
       </div>
-      <div class="slider-row">
+      <div class="slider-row" id="row-gust">
+        <div class="row-top"><span class="row-label">WIND GUST</span><span class="row-val" id="v-gust">12 mph</span></div>
+        <input type="range" id="s-gust" min="0" max="45" value="12">
+      </div>
+      <div class="slider-row" id="row-temp">
         <div class="row-top"><span class="row-label">TEMPERATURE</span><span class="row-val" id="v-temp">55°F</span></div>
         <input type="range" id="s-temp" min="-10" max="90" value="55">
       </div>
+
+      <div class="divider"></div>
+      <div class="section-label">KICKER PROFILE</div>
       <div class="slider-row">
-        <div class="row-top"><span class="row-label">KICKER FORM (6-game)</span><span class="row-val" id="v-kicker">80%</span></div>
+        <div class="row-top"><span class="row-label">ROLLING FORM (6-GAME)</span><span class="row-val" id="v-kicker">80%</span></div>
         <input type="range" id="s-kicker" min="55" max="100" value="80">
       </div>
+      <div class="slider-row">
+        <div class="row-top"><span class="row-label">CAREER MAKE RATE</span><span class="row-val" id="v-career">83%</span></div>
+        <input type="range" id="s-career" min="55" max="100" value="83">
+      </div>
+      <div class="slider-row">
+        <div class="row-top"><span class="row-label">CAREER ATTEMPTS</span><span class="row-val" id="v-attempts">50</span></div>
+        <input type="range" id="s-attempts" min="0" max="150" value="50">
+      </div>
+
+      <div class="divider"></div>
+      <div class="section-label">GAME STATE</div>
+      <div class="slider-row">
+        <div class="row-top"><span class="row-label">TIME REMAINING</span><span class="row-val" id="v-time">30:00</span></div>
+        <input type="range" id="s-time" min="0" max="3600" value="1800" step="30">
+      </div>
+      <div class="slider-row">
+        <div class="row-top"><span class="row-label">SCORE DIFF</span><span class="row-val" id="v-score">0</span></div>
+        <input type="range" id="s-score" min="-28" max="28" value="0">
+      </div>
+
       <div class="divider"></div>
       <div class="section-label">CONDITIONS</div>
       <div class="toggle-row">
@@ -129,7 +162,25 @@
           <span class="toggle-knob" id="k-grass" style="left:21px;background:#0d1f17"></span>
         </button>
       </div>
-      <div id="dome-note" class="dome-note" style="display:none">↳ Wind &amp; temp controlled indoors</div>
+      <div class="toggle-row" id="row-precip">
+        <span>PRECIPITATION</span>
+        <button class="toggle-btn" id="t-precip" style="background:#2d5a3d">
+          <span class="toggle-knob" id="k-precip" style="left:2px;background:#4a7a5a"></span>
+        </button>
+      </div>
+      <div class="toggle-row">
+        <span>DENVER ALTITUDE</span>
+        <button class="toggle-btn" id="t-denver" style="background:#2d5a3d">
+          <span class="toggle-knob" id="k-denver" style="left:2px;background:#4a7a5a"></span>
+        </button>
+      </div>
+      <div class="toggle-row">
+        <span>OVERTIME</span>
+        <button class="toggle-btn" id="t-ot" style="background:#2d5a3d">
+          <span class="toggle-knob" id="k-ot" style="left:2px;background:#4a7a5a"></span>
+        </button>
+      </div>
+      <div id="dome-note" class="dome-note" style="display:none">↳ Dome: wind, gust, temp &amp; precip are all controlled indoors</div>
     </div>
 
     <!-- MAIN -->
@@ -137,24 +188,25 @@
       <div id="tab-bar">
         <button class="tab-btn active" data-tab="0">DISTANCE</button>
         <button class="tab-btn" data-tab="1">WIND &amp; TEMP</button>
-        <button class="tab-btn" data-tab="2">KICKER FORM</button>
-        <button class="tab-btn" data-tab="3">RADAR</button>
+        <button class="tab-btn" data-tab="2">KICKER</button>
+        <button class="tab-btn" data-tab="3">GAME STATE</button>
+        <button class="tab-btn" data-tab="4">RADAR</button>
       </div>
 
-      <!-- TAB 0 -->
+      <!-- TAB 0: DISTANCE -->
       <div class="tab-content active" id="tab-0">
-        <div class="chart-label">P(MAKE) VS KICK DISTANCE — current conditions fixed</div>
+        <div class="chart-label" id="lbl-dist0">P(MAKE) VS KICK DISTANCE — current conditions fixed</div>
         <div class="chart-wrap"><canvas id="c-dist" height="220"></canvas></div>
         <div class="grid-5" id="bucket-cards"></div>
       </div>
 
-      <!-- TAB 1 -->
+      <!-- TAB 1: WIND & TEMP -->
       <div class="tab-content" id="tab-1">
         <div class="grid-2">
           <div>
-            <div class="chart-label" id="lbl-wind">P(MAKE) VS WIND SPEED AT 40 YD</div>
-            <div class="chart-wrap"><canvas id="c-wind" height="200"></canvas></div>
-            <div class="dome-warn" id="warn-wind" style="display:none">⚠ Dome — wind has no effect</div>
+            <div class="chart-label" id="lbl-gust">P(MAKE) VS WIND GUST AT 40 YD</div>
+            <div class="chart-wrap"><canvas id="c-gust" height="200"></canvas></div>
+            <div class="dome-warn" id="warn-gust" style="display:none">⚠ Dome — wind &amp; gust have no effect</div>
           </div>
           <div>
             <div class="chart-label" id="lbl-temp">P(MAKE) VS TEMPERATURE AT 40 YD</div>
@@ -168,245 +220,459 @@
         </div>
       </div>
 
-      <!-- TAB 2 -->
+      <!-- TAB 2: KICKER -->
       <div class="tab-content" id="tab-2">
-        <div class="chart-label" id="lbl-kicker">P(MAKE) VS KICKER ROLLING MAKE RATE AT 40 YD</div>
-        <div class="chart-wrap"><canvas id="c-kicker" height="220"></canvas></div>
-        <div class="grid-4" id="kicker-cards" style="margin-top:18px"></div>
+        <div class="grid-2">
+          <div>
+            <div class="chart-label" id="lbl-kicker">P(MAKE) VS ROLLING MAKE RATE AT 40 YD</div>
+            <div class="chart-wrap"><canvas id="c-kicker" height="200"></canvas></div>
+          </div>
+          <div>
+            <div class="chart-label" id="lbl-career">P(MAKE) VS CAREER MAKE RATE AT 40 YD</div>
+            <div class="chart-wrap"><canvas id="c-career" height="200"></canvas></div>
+          </div>
+        </div>
+        <div class="grid-4" id="kicker-cards" style="margin-top:4px"></div>
         <div class="surface-box">
           <div class="hdr" id="lbl-surface">SURFACE EFFECT AT 40 YD</div>
           <div class="surface-row" id="surface-row"></div>
         </div>
       </div>
 
-      <!-- TAB 3 -->
+      <!-- TAB 3: GAME STATE -->
       <div class="tab-content" id="tab-3">
+        <div class="grid-2">
+          <div>
+            <div class="chart-label" id="lbl-score">P(MAKE) VS SCORE DIFFERENTIAL AT 40 YD</div>
+            <div class="chart-wrap"><canvas id="c-score" height="200"></canvas></div>
+          </div>
+          <div>
+            <div class="chart-label" id="lbl-clock">P(MAKE) VS TIME REMAINING AT 40 YD</div>
+            <div class="chart-wrap"><canvas id="c-clock" height="200"></canvas></div>
+          </div>
+          <div class="span-all">
+            <div class="chart-label" id="lbl-pressure">GAME PRESSURE SCENARIOS AT 40 YD</div>
+            <div class="grid-4" id="pressure-cards" style="margin-top:8px"></div>
+          </div>
+        </div>
+        <div class="surface-box" style="margin-top:4px">
+          <div class="hdr">ALTITUDE EFFECT AT CURRENT DISTANCE</div>
+          <div class="surface-row" id="altitude-row"></div>
+        </div>
+      </div>
+
+      <!-- TAB 4: RADAR -->
+      <div class="tab-content" id="tab-4">
         <div class="chart-label">FACTOR STRENGTH RADAR — normalized favorable contribution</div>
         <div class="chart-wrap" style="display:flex;justify-content:center">
-          <canvas id="c-radar" width="400" height="340" style="width:auto!important;max-width:400px"></canvas>
+          <canvas id="c-radar" width="480" height="400" style="width:auto!important;max-width:480px"></canvas>
         </div>
-        <div class="grid-3" id="radar-bars"></div>
+        <div class="grid-auto" id="radar-bars"></div>
       </div>
     </div>
   </div>
 </div>
 
 <script>
-// ── State ─────────────────────────────────────────────────────────────────
-const S = { dist: 40, wind: 8, temp: 55, kicker: 0.80, isDome: false, isGrass: true };
+// ── State ─────────────────────────────────────────────��───────────────────
+const S = {
+  dist: 40, wind: 8, windGust: 12, temp: 55,
+  kicker: 0.80, careerRate: 0.83, careerAttempts: 50,
+  isDome: false, isGrass: true, isPrecip: false, isDenver: false, isOT: false,
+  secondsRemaining: 1800, scoreDiff: 0,
+};
 
-// ── Model ─────────────────────────────────────────────────────────────────
-function fgProb(dist, isDome, wind, temp, kicker, isGrass) {
-  const wa = isDome ? 0 : wind;
-  const ta = isDome ? 72 : temp;
-  const logit = 5.2 - 0.072*dist + 0.35*(isDome?1:0) - 0.028*wa + 0.008*(ta-55) + 3.2*(kicker-0.80) - 0.12*(isGrass?1:0);
+// ── Model: logistic approximation of trained XGBoost ──────────────────────
+// Reflects all 15 feature columns used in the Python model:
+//   kick_distance, is_dome, wind_gust, wind_gust_x_distance, temp_adj,
+//   temp_x_distance, is_precipitation, fg_make_rate_roll6,
+//   kicker_career_make_rate, kicker_career_attempts, surface_is_grass,
+//   altitude_ft, game_seconds_remaining, score_differential, is_overtime
+function fgProb(dist, isDome, wind, windGust, temp, isPrecip,
+                kicker, careerRate, careerAttempts,
+                isGrass, altitudeFt, secondsRemaining, scoreDiff, isOT) {
+  const effGust = isDome ? 0 : windGust;
+  const ta      = isDome ? 72 : temp;
+
+  // Career rate confidence: blend toward league avg (0.80) when few attempts
+  const conf           = Math.min(1, careerAttempts / 40);
+  const effectiveCareer = conf * careerRate + (1 - conf) * 0.80;
+
+  // Game pressure: trailing late compresses probability
+  const gamePhase       = 1 - Math.min(1, secondsRemaining / 3600);
+  const trailingPressure = Math.max(0, -scoreDiff) * gamePhase;
+
+  const logit =
+      5.0
+    - 0.076  * dist
+    + 0.40   * (isDome ? 1 : 0)
+    - 0.030  * effGust
+    - 0.00028 * effGust * dist                        // wind_gust_x_distance
+    + 0.009  * (ta - 55)
+    - 0.00008 * (ta - 55) * (dist - 40)              // temp_x_distance cold-air drag
+    - 0.28   * (isPrecip && !isDome ? 1 : 0)         // precipitation
+    + 3.0    * (kicker - 0.80)                        // rolling 6-game form
+    + 1.8    * (effectiveCareer - 0.80)              // career rate (experience-weighted)
+    - 0.10   * (isGrass ? 1 : 0)                     // grass slightly harder than turf
+    + 0.000025 * altitudeFt                           // thin air at altitude (Denver +~0.13)
+    - 0.015  * trailingPressure                       // game pressure when trailing late
+    - 0.22   * (isOT ? 1 : 0);                       // overtime maximum pressure
+
   return 1 / (1 + Math.exp(-logit));
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// Convenience: call fgProb with current state, optionally overriding fields
+function fg(overrides) {
+  const d = overrides ? Object.assign({}, S, overrides) : S;
+  return fgProb(
+    d.dist, d.isDome, d.wind, d.windGust, d.temp, d.isPrecip,
+    d.kicker, d.careerRate, d.careerAttempts,
+    d.isGrass, d.isDenver ? 5280 : 0,
+    d.secondsRemaining, d.scoreDiff, d.isOT
+  );
+}
+
+// ── Colour & format helpers ───────────────────────────────────────────────
 const GOLD="#f5c518", ACCENT="#4ade80", DANGER="#f87171", MUTED="#8aaa96", GRID="#1e4a2e";
-function col(p) { return p>0.75?ACCENT:p>0.5?GOLD:DANGER; }
-function pct(p) { return Math.round(p*100)+"%"; }
+const BLUE="#60a5fa", PINK="#f472b6", PURPLE="#a78bfa", ORANGE="#fb923c";
+
+function col(p) { return p > 0.75 ? ACCENT : p > 0.5 ? GOLD : DANGER; }
+function pct(p) { return Math.round(p * 100) + "%"; }
+function fmtTime(secs) {
+  const m = Math.floor(secs / 60), s = secs % 60;
+  return m + ":" + String(s).padStart(2, "0");
+}
+function fmtScore(v) { return v > 0 ? "+" + v : String(v); }
 
 function statCard(lbl, prob) {
   const c = col(prob);
-  return `<div class="stat-card" style="border:1px solid ${c}40"><div class="big" style="color:${c}">${pct(prob)}</div><div class="lbl">${lbl}</div></div>`;
+  return `<div class="stat-card" style="border:1px solid ${c}40">
+    <div class="big" style="color:${c}">${pct(prob)}</div>
+    <div class="lbl">${lbl}</div></div>`;
 }
 
 // ── Canvas line chart ─────────────────────────────────────────────────────
-function drawLine(id, data, xk, yk, lineCol, xLabel, curX) {
+function drawLine(id, data, xk, yk, lineCol, xLabel, curX, fmtX) {
   const canvas = document.getElementById(id);
   if (!canvas) return;
   const W = canvas.parentElement.clientWidth - 20;
   canvas.width = W;
   const H = canvas.height;
   const ctx = canvas.getContext("2d");
-  const P = {t:12, r:12, b:36, l:46};
-  const cW = W-P.l-P.r, cH = H-P.t-P.b;
+  const P = { t: 12, r: 12, b: 36, l: 46 };
+  const cW = W - P.l - P.r, cH = H - P.t - P.b;
 
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle="#0f2219"; ctx.fillRect(0,0,W,H);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f2219"; ctx.fillRect(0, 0, W, H);
 
-  const xs=data.map(d=>d[xk]), ys=data.map(d=>d[yk]);
-  const x0=xs[0], x1=xs[xs.length-1];
-  function cx(x){return P.l+(x-x0)/(x1-x0)*cW;}
-  function cy(y){return P.t+(1-y)*cH;}
+  const xs = data.map(d => d[xk]), ys = data.map(d => d[yk]);
+  const x0 = xs[0], x1 = xs[xs.length - 1];
+  function cx(x) { return P.l + (x - x0) / (x1 - x0) * cW; }
+  function cy(y) { return P.t + (1 - y) * cH; }
 
-  // Grid
-  ctx.strokeStyle=GRID; ctx.lineWidth=1; ctx.setLineDash([3,3]);
-  [0,.25,.5,.75,1].forEach(v=>{
-    ctx.beginPath(); ctx.moveTo(P.l,cy(v)); ctx.lineTo(P.l+cW,cy(v)); ctx.stroke();
+  ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+  [0, .25, .5, .75, 1].forEach(v => {
+    ctx.beginPath(); ctx.moveTo(P.l, cy(v)); ctx.lineTo(P.l + cW, cy(v)); ctx.stroke();
   });
   ctx.setLineDash([]);
 
-  // Fill
-  const g=ctx.createLinearGradient(0,P.t,0,P.t+cH);
-  g.addColorStop(0,lineCol+"55"); g.addColorStop(1,lineCol+"00");
-  ctx.beginPath(); ctx.moveTo(cx(xs[0]),cy(ys[0]));
-  xs.forEach((x,i)=>ctx.lineTo(cx(x),cy(ys[i])));
-  ctx.lineTo(cx(xs[xs.length-1]),P.t+cH); ctx.lineTo(cx(xs[0]),P.t+cH);
-  ctx.closePath(); ctx.fillStyle=g; ctx.fill();
+  const g = ctx.createLinearGradient(0, P.t, 0, P.t + cH);
+  g.addColorStop(0, lineCol + "55"); g.addColorStop(1, lineCol + "00");
+  ctx.beginPath(); ctx.moveTo(cx(xs[0]), cy(ys[0]));
+  xs.forEach((x, i) => ctx.lineTo(cx(x), cy(ys[i])));
+  ctx.lineTo(cx(xs[xs.length - 1]), P.t + cH); ctx.lineTo(cx(xs[0]), P.t + cH);
+  ctx.closePath(); ctx.fillStyle = g; ctx.fill();
 
-  // Line
-  ctx.beginPath(); ctx.strokeStyle=lineCol; ctx.lineWidth=2.5;
-  xs.forEach((x,i)=>i===0?ctx.moveTo(cx(x),cy(ys[i])):ctx.lineTo(cx(x),cy(ys[i])));
+  ctx.beginPath(); ctx.strokeStyle = lineCol; ctx.lineWidth = 2.5;
+  xs.forEach((x, i) => i === 0 ? ctx.moveTo(cx(x), cy(ys[i])) : ctx.lineTo(cx(x), cy(ys[i])));
   ctx.stroke();
 
-  // Current dot
   if (curX !== undefined) {
-    const ci = xs.reduce((b,x,i)=>Math.abs(x-curX)<Math.abs(xs[b]-curX)?i:b,0);
-    ctx.beginPath(); ctx.arc(cx(xs[ci]),cy(ys[ci]),5,0,Math.PI*2);
-    ctx.fillStyle=lineCol; ctx.fill();
-    ctx.strokeStyle="#0d1f17"; ctx.lineWidth=2; ctx.stroke();
+    const ci = xs.reduce((b, x, i) => Math.abs(x - curX) < Math.abs(xs[b] - curX) ? i : b, 0);
+    ctx.beginPath(); ctx.arc(cx(xs[ci]), cy(ys[ci]), 5, 0, Math.PI * 2);
+    ctx.fillStyle = lineCol; ctx.fill();
+    ctx.strokeStyle = "#0d1f17"; ctx.lineWidth = 2; ctx.stroke();
   }
 
-  // Y labels
-  ctx.fillStyle=MUTED; ctx.font="10px 'DM Mono',monospace"; ctx.textAlign="right";
-  [0,.25,.5,.75,1].forEach(v=>ctx.fillText(Math.round(v*100)+"%",P.l-6,cy(v)+4));
+  ctx.fillStyle = MUTED; ctx.font = "10px 'DM Mono',monospace"; ctx.textAlign = "right";
+  [0, .25, .5, .75, 1].forEach(v => ctx.fillText(Math.round(v * 100) + "%", P.l - 6, cy(v) + 4));
 
-  // X labels
-  ctx.textAlign="center";
-  const step=Math.max(1,Math.ceil((x1-x0)/8));
-  for(let x=x0;x<=x1;x+=step) ctx.fillText(x,cx(x),P.t+cH+16);
-  if(xLabel) ctx.fillText(xLabel,P.l+cW/2,H-4);
+  ctx.textAlign = "center";
+  const step = Math.max(1, Math.ceil((x1 - x0) / 8));
+  for (let x = x0; x <= x1; x += step)
+    ctx.fillText(fmtX ? fmtX(x) : x, cx(x), P.t + cH + 16);
+  if (xLabel) ctx.fillText(xLabel, P.l + cW / 2, H - 4);
 }
 
 // ── Radar ─────────────────────────────────────────────────────────────────
 function drawRadar(data) {
-  const canvas=document.getElementById("c-radar");
-  if(!canvas) return;
-  const W=canvas.width, H=canvas.height;
-  const ctx=canvas.getContext("2d");
-  ctx.clearRect(0,0,W,H);
-  ctx.fillStyle="#0f2219"; ctx.fillRect(0,0,W,H);
+  const canvas = document.getElementById("c-radar");
+  if (!canvas) return;
+  const W = canvas.width, H = canvas.height;
+  const ctx = canvas.getContext("2d");
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#0f2219"; ctx.fillRect(0, 0, W, H);
 
-  const cx=W/2, cy=H/2-10, R=Math.min(W,H)/2-60;
-  const n=data.length;
-  const ang=i=>(i/n)*Math.PI*2-Math.PI/2;
+  const cx = W / 2, cy = H / 2 - 8, R = Math.min(W, H) / 2 - 68;
+  const n = data.length;
+  const ang = i => (i / n) * Math.PI * 2 - Math.PI / 2;
 
-  [.25,.5,.75,1].forEach(r=>{
+  [.25, .5, .75, 1].forEach(r => {
     ctx.beginPath();
-    data.forEach((_,i)=>{const a=ang(i);i===0?ctx.moveTo(cx+Math.cos(a)*R*r,cy+Math.sin(a)*R*r):ctx.lineTo(cx+Math.cos(a)*R*r,cy+Math.sin(a)*R*r);});
-    ctx.closePath(); ctx.strokeStyle=GRID; ctx.lineWidth=1; ctx.stroke();
+    data.forEach((_, i) => {
+      const a = ang(i);
+      i === 0 ? ctx.moveTo(cx + Math.cos(a) * R * r, cy + Math.sin(a) * R * r)
+              : ctx.lineTo(cx + Math.cos(a) * R * r, cy + Math.sin(a) * R * r);
+    });
+    ctx.closePath(); ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.stroke();
   });
 
-  data.forEach((_,i)=>{
-    const a=ang(i);
-    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
-    ctx.strokeStyle=GRID; ctx.lineWidth=1; ctx.stroke();
+  data.forEach((_, i) => {
+    const a = ang(i);
+    ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+    ctx.strokeStyle = GRID; ctx.lineWidth = 1; ctx.stroke();
   });
 
   ctx.beginPath();
-  data.forEach((d,i)=>{const a=ang(i);i===0?ctx.moveTo(cx+Math.cos(a)*R*d.value,cy+Math.sin(a)*R*d.value):ctx.lineTo(cx+Math.cos(a)*R*d.value,cy+Math.sin(a)*R*d.value);});
-  ctx.closePath(); ctx.fillStyle=GOLD+"33"; ctx.fill();
-  ctx.strokeStyle=GOLD; ctx.lineWidth=2; ctx.stroke();
+  data.forEach((d, i) => {
+    const a = ang(i);
+    i === 0 ? ctx.moveTo(cx + Math.cos(a) * R * d.value, cy + Math.sin(a) * R * d.value)
+            : ctx.lineTo(cx + Math.cos(a) * R * d.value, cy + Math.sin(a) * R * d.value);
+  });
+  ctx.closePath(); ctx.fillStyle = GOLD + "33"; ctx.fill();
+  ctx.strokeStyle = GOLD; ctx.lineWidth = 2; ctx.stroke();
 
-  ctx.fillStyle="#e8e8e0"; ctx.font="11px 'DM Mono',monospace"; ctx.textAlign="center";
-  data.forEach((d,i)=>{
-    const a=ang(i);
-    ctx.fillText(d.factor, cx+Math.cos(a)*(R+28), cy+Math.sin(a)*(R+28)+4);
+  ctx.font = "10px 'DM Mono',monospace"; ctx.textAlign = "center";
+  data.forEach((d, i) => {
+    const a = ang(i);
+    const lx = cx + Math.cos(a) * (R + 32), ly = cy + Math.sin(a) * (R + 32) + 4;
+    const c = d.value > 0.7 ? ACCENT : d.value > 0.4 ? GOLD : DANGER;
+    ctx.fillStyle = c;
+    ctx.fillText(d.factor, lx, ly);
   });
 }
 
 // ── Gauge ─────────────────────────────────────────────────────────────────
 function updateGauge(prob) {
-  const circ=2*Math.PI*52;
-  document.getElementById("gauge-arc").setAttribute("stroke-dasharray",circ);
-  document.getElementById("gauge-arc").setAttribute("stroke-dashoffset",circ*(1-prob));
-  document.getElementById("gauge-arc").setAttribute("stroke",col(prob));
-  document.getElementById("gauge-pct").textContent=pct(prob);
+  const circ = 2 * Math.PI * 52;
+  document.getElementById("gauge-arc").setAttribute("stroke-dasharray", circ);
+  document.getElementById("gauge-arc").setAttribute("stroke-dashoffset", circ * (1 - prob));
+  document.getElementById("gauge-arc").setAttribute("stroke", col(prob));
+  document.getElementById("gauge-pct").textContent = pct(prob);
+}
+
+// ── Sync dome UI state ────────────────────────────────────────────────────
+function syncDomeUI() {
+  const off = S.isDome;
+  ["row-wind", "row-gust", "row-temp"].forEach(id => {
+    document.getElementById(id).classList.toggle("dimmed", off);
+  });
+  ["s-wind", "s-gust", "s-temp"].forEach(id => {
+    document.getElementById(id).disabled = off;
+  });
+  const precipRow = document.getElementById("row-precip");
+  precipRow.classList.toggle("dimmed", off);
+  document.getElementById("dome-note").style.display = off ? "block" : "none";
 }
 
 // ── Main render ───────────────────────────────────────────────────────────
 function render() {
-  const {dist,wind,temp,kicker,isDome,isGrass}=S;
-  const cur=fgProb(dist,isDome,wind,temp,kicker,isGrass);
+  const { dist, wind, windGust, temp, kicker, careerRate, careerAttempts,
+          isDome, isGrass, isPrecip, isDenver, isOT, secondsRemaining, scoreDiff } = S;
+  const cur = fg();
 
   updateGauge(cur);
-  document.getElementById("v-dist").textContent=dist+" yd";
-  document.getElementById("v-wind").textContent=wind+" mph";
-  document.getElementById("v-temp").textContent=temp+"°F";
-  document.getElementById("v-kicker").textContent=kicker*100+"%";
-  document.getElementById("dome-note").style.display=isDome?"block":"none";
 
-  // Tab 0
-  drawLine("c-dist", Array.from({length:45},(_,i)=>({d:18+i,p:fgProb(18+i,isDome,wind,temp,kicker,isGrass)})),"d","p",ACCENT,"yards",dist);
-  document.getElementById("bucket-cards").innerHTML=
-    [["≤30 yd",25],["31–40 yd",36],["41–50 yd",46],["51–55 yd",53],["56+ yd",59]]
-    .map(([l,d])=>statCard(l,fgProb(d,isDome,wind,temp,kicker,isGrass))).join("");
+  document.getElementById("v-dist").textContent     = dist + " yd";
+  document.getElementById("v-wind").textContent     = wind + " mph";
+  document.getElementById("v-gust").textContent     = windGust + " mph";
+  document.getElementById("v-temp").textContent     = temp + "°F";
+  document.getElementById("v-kicker").textContent   = Math.round(kicker * 100) + "%";
+  document.getElementById("v-career").textContent   = Math.round(careerRate * 100) + "%";
+  document.getElementById("v-attempts").textContent = careerAttempts;
+  document.getElementById("v-time").textContent     = fmtTime(secondsRemaining);
+  document.getElementById("v-score").textContent    = fmtScore(scoreDiff);
 
-  // Tab 1
-  document.getElementById("lbl-wind").textContent=`P(MAKE) VS WIND SPEED AT ${dist} YD`;
-  document.getElementById("lbl-temp").textContent=`P(MAKE) VS TEMPERATURE AT ${dist} YD`;
-  document.getElementById("lbl-scenario").textContent=`SCENARIO COMPARISON AT ${dist} YD`;
-  document.getElementById("warn-wind").style.display=isDome?"block":"none";
-  document.getElementById("warn-temp").style.display=isDome?"block":"none";
-  drawLine("c-wind",Array.from({length:31},(_,i)=>({w:i,p:fgProb(dist,isDome,i,temp,kicker,isGrass)})),"w","p",GOLD,"mph",wind);
-  drawLine("c-temp",Array.from({length:21},(_,i)=>({t:-10+i*5,p:fgProb(dist,isDome,wind,-10+i*5,kicker,isGrass)})),"t","p","#60a5fa","°F",temp);
-  document.getElementById("scenario-cards").innerHTML=
-    [["Calm indoor",true,0,72],["Mild outdoor",false,5,65],["Windy cold",false,20,35],["Blizzard",false,30,15]]
-    .map(([l,d,w,t])=>statCard(l,fgProb(dist,d,w,t,kicker,isGrass))).join("");
+  // ── TAB 0: Distance ──────────────────────────────────────────────────────
+  drawLine("c-dist",
+    Array.from({ length: 48 }, (_, i) => ({ d: 18 + i, p: fg({ dist: 18 + i }) })),
+    "d", "p", ACCENT, "yards", dist);
+  document.getElementById("bucket-cards").innerHTML =
+    [["≤30 yd", 25], ["31–40 yd", 36], ["41–50 yd", 46], ["51–55 yd", 53], ["56+ yd", 59]]
+    .map(([l, d]) => statCard(l, fg({ dist: d }))).join("");
 
-  // Tab 2
-  document.getElementById("lbl-kicker").textContent=`P(MAKE) VS KICKER ROLLING MAKE RATE AT ${dist} YD`;
-  document.getElementById("lbl-surface").textContent=`SURFACE EFFECT AT ${dist} YD`;
-  drawLine("c-kicker",Array.from({length:46},(_,i)=>({k:55+i,p:fgProb(dist,isDome,wind,temp,(55+i)/100,isGrass)})),"k","p","#f472b6","make rate %",kicker*100);
-  document.getElementById("kicker-cards").innerHTML=
-    [["Struggling\n(60%)",0.60],["League Avg\n(80%)",0.80],["Good\n(90%)",0.90],["Elite\n(95%)",0.95]].map(([l,k])=>{
-      const pp=fgProb(dist,isDome,wind,temp,k,isGrass),c=col(pp);
-      return `<div class="kicker-card" style="border:1px solid ${c}40"><div class="big" style="color:${c}">${pct(pp)}</div><div class="lbl">${l}</div></div>`;
+  // ── TAB 1: Wind & Temp ───────────────────────────────────────────────────
+  document.getElementById("lbl-gust").textContent     = `P(MAKE) VS WIND GUST AT ${dist} YD`;
+  document.getElementById("lbl-temp").textContent     = `P(MAKE) VS TEMPERATURE AT ${dist} YD`;
+  document.getElementById("lbl-scenario").textContent = `SCENARIO COMPARISON AT ${dist} YD`;
+  document.getElementById("warn-gust").style.display  = isDome ? "block" : "none";
+  document.getElementById("warn-temp").style.display  = isDome ? "block" : "none";
+
+  drawLine("c-gust",
+    Array.from({ length: 46 }, (_, i) => ({ w: i, p: fg({ windGust: i }) })),
+    "w", "p", GOLD, "mph (gust)", windGust);
+  drawLine("c-temp",
+    Array.from({ length: 21 }, (_, i) => ({ t: -10 + i * 5, p: fg({ temp: -10 + i * 5 }) })),
+    "t", "p", BLUE, "°F", temp);
+
+  document.getElementById("scenario-cards").innerHTML =
+    [
+      ["Calm Indoor",    { isDome: true,  windGust: 0,  temp: 72, isPrecip: false }],
+      ["Mild Outdoor",   { isDome: false, windGust: 8,  temp: 65, isPrecip: false }],
+      ["Windy Cold",     { isDome: false, windGust: 22, temp: 35, isPrecip: false }],
+      ["Blizzard",       { isDome: false, windGust: 32, temp: 18, isPrecip: true  }],
+    ].map(([l, o]) => statCard(l, fg({ dist, ...o }))).join("");
+
+  // ── TAB 2: Kicker ────────────────────────────────────────────────────────
+  document.getElementById("lbl-kicker").textContent  = `P(MAKE) VS ROLLING FORM AT ${dist} YD`;
+  document.getElementById("lbl-career").textContent  = `P(MAKE) VS CAREER RATE AT ${dist} YD`;
+  document.getElementById("lbl-surface").textContent = `SURFACE EFFECT AT ${dist} YD`;
+
+  drawLine("c-kicker",
+    Array.from({ length: 46 }, (_, i) => ({ k: 55 + i, p: fg({ kicker: (55 + i) / 100 }) })),
+    "k", "p", PINK, "rolling make rate %", kicker * 100);
+  drawLine("c-career",
+    Array.from({ length: 46 }, (_, i) => ({ k: 55 + i, p: fg({ careerRate: (55 + i) / 100 }) })),
+    "k", "p", PURPLE, "career make rate %", careerRate * 100);
+
+  document.getElementById("kicker-cards").innerHTML =
+    [
+      ["Struggling\n(60% / 62%)", 0.60, 0.62],
+      ["League Avg\n(80% / 83%)", 0.80, 0.83],
+      ["Good\n(90% / 91%)",       0.90, 0.91],
+      ["Elite\n(95% / 96%)",      0.95, 0.96],
+    ].map(([l, k, cr]) => {
+      const pp = fg({ kicker: k, careerRate: cr }), c = col(pp);
+      return `<div class="kicker-card" style="border:1px solid ${c}40">
+        <div class="big" style="color:${c}">${pct(pp)}</div>
+        <div class="lbl">${l}</div></div>`;
     }).join("");
-  document.getElementById("surface-row").innerHTML=
-    [["Natural Grass",true],["Artificial Turf",false]].map(([l,g])=>{
-      const pp=fgProb(dist,isDome,wind,temp,kicker,g);
-      return `<div class="surface-item"><div class="big" style="color:${g?ACCENT:GOLD}">${pct(pp)}</div><div class="sub">${l}</div></div>`;
+
+  document.getElementById("surface-row").innerHTML =
+    [["Natural Grass", true], ["Artificial Turf", false]]
+    .map(([l, g]) => {
+      const pp = fg({ isGrass: g });
+      return `<div class="surface-item">
+        <div class="big" style="color:${g ? BLUE : ORANGE}">${pct(pp)}</div>
+        <div class="sub">${l}</div></div>`;
     }).join("");
 
-  // Tab 3
-  const radarData=[
-    {factor:"Distance",value:Math.max(0,1-(dist-18)/44)},
-    {factor:"Wind",    value:isDome?1:Math.max(0,1-wind/30)},
-    {factor:"Temp",    value:isDome?1:Math.min(1,Math.max(0,(temp+10)/80))},
-    {factor:"Kicker",  value:kicker},
-    {factor:"Surface", value:isGrass?0.65:0.82},
-    {factor:"Indoor",  value:isDome?1:0.45},
+  // ── TAB 3: Game State ────────────────────────────────────────────────────
+  document.getElementById("lbl-score").textContent    = `P(MAKE) VS SCORE DIFF AT ${dist} YD`;
+  document.getElementById("lbl-clock").textContent    = `P(MAKE) VS TIME REMAINING AT ${dist} YD`;
+  document.getElementById("lbl-pressure").textContent = `GAME PRESSURE SCENARIOS AT ${dist} YD`;
+
+  drawLine("c-score",
+    Array.from({ length: 57 }, (_, i) => ({ s: -28 + i, p: fg({ scoreDiff: -28 + i }) })),
+    "s", "p", GOLD, "score differential", scoreDiff,
+    v => v > 0 ? "+" + v : String(v));
+
+  drawLine("c-clock",
+    Array.from({ length: 49 }, (_, i) => ({ t: i * 75, p: fg({ secondsRemaining: i * 75 }) })),
+    "t", "p", ACCENT, "time remaining", secondsRemaining,
+    v => fmtTime(v));
+
+  document.getElementById("pressure-cards").innerHTML =
+    [
+      ["Comfortable lead\n+14, 4th qtr",    { scoreDiff:  14, secondsRemaining: 300,  isOT: false }],
+      ["Tied, late\n0, 2-min drill",         { scoreDiff:   0, secondsRemaining: 120,  isOT: false }],
+      ["Trailing by 3\nfinal drive",         { scoreDiff:  -3, secondsRemaining:  60,  isOT: false }],
+      ["OT — must make\nsudden death",        { scoreDiff:   0, secondsRemaining: 900,  isOT: true  }],
+    ].map(([l, o]) => statCard(l, fg({ dist, ...o }))).join("");
+
+  const altFgArgs = (alt) => fgProb(
+    dist, isDome, wind, windGust, temp, isPrecip,
+    kicker, careerRate, careerAttempts,
+    isGrass, alt, secondsRemaining, scoreDiff, isOT
+  );
+  document.getElementById("altitude-row").innerHTML =
+    [
+      ["Sea Level\n(most stadiums)", 0, GOLD],
+      ["Mile High\nDenver — 5,280 ft", 5280, ACCENT],
+    ].map(([l, alt, c]) =>
+      `<div class="surface-item">
+        <div class="big" style="color:${c}">${pct(altFgArgs(alt))}</div>
+        <div class="sub">${l}</div></div>`
+    ).join("");
+
+  // ── TAB 4: Radar ─────────────────────────────────────────────────────────
+  const effGust = isDome ? 0 : windGust;
+  const ta      = isDome ? 72 : temp;
+  const gamePhase       = 1 - Math.min(1, secondsRemaining / 3600);
+  const trailingPressure = Math.max(0, -scoreDiff) * gamePhase;
+  const conf            = Math.min(1, careerAttempts / 40);
+
+  const radarData = [
+    { factor: "Distance",  value: Math.max(0, 1 - (dist - 18) / 47) },
+    { factor: "Gust",      value: isDome ? 1 : Math.max(0, 1 - effGust / 45) },
+    { factor: "Temp",      value: isDome ? 1 : Math.min(1, Math.max(0, (ta + 10) / 100)) },
+    { factor: "Precip",    value: isPrecip && !isDome ? 0.05 : 1 },
+    { factor: "Form",      value: kicker },
+    { factor: "Career",    value: conf * careerRate + (1 - conf) * 0.80 },
+    { factor: "Surface",   value: isGrass ? 0.55 : 0.78 },
+    { factor: "Altitude",  value: isDenver ? 1 : 0.48 },
+    { factor: "Clock",     value: Math.max(0.05, 1 - trailingPressure * 0.5) },
+    { factor: "OT",        value: isOT ? 0.12 : 0.92 },
   ];
+
   drawRadar(radarData);
-  document.getElementById("radar-bars").innerHTML=radarData.map(({factor,value})=>{
-    const c=value>0.7?ACCENT:value>0.4?GOLD:DANGER;
+
+  document.getElementById("radar-bars").innerHTML = radarData.map(({ factor, value }) => {
+    const c = value > 0.7 ? ACCENT : value > 0.4 ? GOLD : DANGER;
     return `<div class="radar-bar-item"><span>${factor}</span>
       <div class="rbar-right">
-        <div class="rbar-track"><div class="rbar-fill" style="width:${Math.round(value*100)}%;background:${c}"></div></div>
-        <span class="rbar-val" style="color:${c}">${Math.round(value*100)}</span>
+        <div class="rbar-track"><div class="rbar-fill" style="width:${Math.round(value * 100)}%;background:${c}"></div></div>
+        <span class="rbar-val" style="color:${c}">${Math.round(value * 100)}</span>
       </div></div>`;
   }).join("");
 }
 
 // ── Events ────────────────────────────────────────────────────────────────
-document.getElementById("s-dist").addEventListener("input",  e=>{S.dist=+e.target.value;render();});
-document.getElementById("s-wind").addEventListener("input",  e=>{S.wind=+e.target.value;render();});
-document.getElementById("s-temp").addEventListener("input",  e=>{S.temp=+e.target.value;render();});
-document.getElementById("s-kicker").addEventListener("input",e=>{S.kicker=+e.target.value/100;render();});
+document.getElementById("s-dist").addEventListener("input",     e => { S.dist             = +e.target.value;        render(); });
+document.getElementById("s-wind").addEventListener("input",     e => { S.wind             = +e.target.value;        render(); });
+document.getElementById("s-gust").addEventListener("input",     e => { S.windGust         = +e.target.value;        render(); });
+document.getElementById("s-temp").addEventListener("input",     e => { S.temp             = +e.target.value;        render(); });
+document.getElementById("s-kicker").addEventListener("input",   e => { S.kicker           = +e.target.value / 100;  render(); });
+document.getElementById("s-career").addEventListener("input",   e => { S.careerRate       = +e.target.value / 100;  render(); });
+document.getElementById("s-attempts").addEventListener("input", e => { S.careerAttempts   = +e.target.value;        render(); });
+document.getElementById("s-time").addEventListener("input",     e => { S.secondsRemaining = +e.target.value;        render(); });
+document.getElementById("s-score").addEventListener("input",    e => { S.scoreDiff        = +e.target.value;        render(); });
 
-function setToggle(btnId,knobId,on){
-  document.getElementById(btnId).style.background=on?"#f5c518":"#2d5a3d";
-  document.getElementById(knobId).style.left=on?"21px":"2px";
-  document.getElementById(knobId).style.background=on?"#0d1f17":"#4a7a5a";
+function setToggle(btnId, knobId, on) {
+  document.getElementById(btnId).style.background     = on ? "#f5c518" : "#2d5a3d";
+  document.getElementById(knobId).style.left          = on ? "21px" : "2px";
+  document.getElementById(knobId).style.background    = on ? "#0d1f17" : "#4a7a5a";
 }
-document.getElementById("t-dome").addEventListener("click",()=>{S.isDome=!S.isDome;setToggle("t-dome","k-dome",S.isDome);render();});
-document.getElementById("t-grass").addEventListener("click",()=>{S.isGrass=!S.isGrass;setToggle("t-grass","k-grass",S.isGrass);render();});
 
-document.querySelectorAll(".tab-btn").forEach(btn=>{
-  btn.addEventListener("click",()=>{
-    document.querySelectorAll(".tab-btn").forEach(b=>b.classList.remove("active"));
-    document.querySelectorAll(".tab-content").forEach(c=>c.classList.remove("active"));
+document.getElementById("t-dome").addEventListener("click", () => {
+  S.isDome = !S.isDome; setToggle("t-dome", "k-dome", S.isDome); syncDomeUI(); render();
+});
+document.getElementById("t-grass").addEventListener("click", () => {
+  S.isGrass = !S.isGrass; setToggle("t-grass", "k-grass", S.isGrass); render();
+});
+document.getElementById("t-precip").addEventListener("click", () => {
+  if (S.isDome) return;
+  S.isPrecip = !S.isPrecip; setToggle("t-precip", "k-precip", S.isPrecip); render();
+});
+document.getElementById("t-denver").addEventListener("click", () => {
+  S.isDenver = !S.isDenver; setToggle("t-denver", "k-denver", S.isDenver); render();
+});
+document.getElementById("t-ot").addEventListener("click", () => {
+  S.isOT = !S.isOT; setToggle("t-ot", "k-ot", S.isOT); render();
+});
+
+document.querySelectorAll(".tab-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+    document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
     btn.classList.add("active");
-    document.getElementById("tab-"+btn.dataset.tab).classList.add("active");
+    document.getElementById("tab-" + btn.dataset.tab).classList.add("active");
     render();
   });
 });
 
-window.addEventListener("resize",render);
+window.addEventListener("resize", render);
+syncDomeUI();
 render();
 </script>
 </body>
