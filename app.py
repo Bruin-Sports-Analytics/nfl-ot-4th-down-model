@@ -208,6 +208,7 @@ with col_gauge:
         number={"suffix": "%", "font": {"size": 48, "color": color, "family": "monospace"}},
         delta={"reference": 50, "valueformat": ".1f", "suffix": "%",
                "increasing": {"color": "#4ade80"}, "decreasing": {"color": "#f87171"}},
+        domain={"x": [0, 1], "y": [0.15, 1]},
         gauge={
             "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#8aaa96",
                      "tickfont": {"color": "#8aaa96"}},
@@ -233,8 +234,8 @@ with col_gauge:
     fig_gauge.update_layout(
         paper_bgcolor="#0d1f17",
         font={"color": "#f8f8f2", "family": "monospace"},
-        margin=dict(t=80, b=20, l=30, r=30),
-        height=300,
+        margin=dict(t=80, b=0, l=30, r=30),
+        height=320,
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
 

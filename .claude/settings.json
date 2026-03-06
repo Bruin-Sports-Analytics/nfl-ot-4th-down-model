@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python fg_presentation_plots.py)",
+      "Bash(git push)",
+      "Bash(python3 -c \"import joblib; m = joblib.load\\(''/Users/eshaan/Desktop/BSA Football Group 1/nfl-ot-4th-down-model/models/fourth_down_conversion.pkl''\\); print\\(''Model keys:'', list\\(m.keys\\(\\)\\)\\); print\\(''Model type:'', type\\(m[''model'']\\)\\); print\\(''Number of features:'', len\\(m[''features'']\\)\\); print\\(''Features:'', m[''features'']\\)\")",
+      "Bash(python3 -c \":*)",
+      "Bash(python3:*)",
+      "Bash(python -c \":*)",
+      "Bash(python -m src.models.fourth_down_conversion)"
+    ]
+  }
+}
