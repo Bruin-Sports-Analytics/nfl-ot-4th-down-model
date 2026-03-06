@@ -29,6 +29,33 @@ MODEL_PATH      = _ROOT / "models" / "fourth_down_conversion.pkl"
 TEAM_STATS_PATH = _ROOT / "data" / "processed" / "team_stats_snapshot.csv"
 
 # ---------------------------------------------------------------------------
+# Page config — MUST be first Streamlit command
+# ---------------------------------------------------------------------------
+st.set_page_config(
+    page_title="4th Down Conversion Predictor",
+    page_icon="🏈",
+    layout="wide",
+)
+
+# ---------------------------------------------------------------------------
+# Custom CSS
+# ---------------------------------------------------------------------------
+st.markdown("""
+<style>
+    .main { background-color: #0a1628; }
+    .stMetric { background-color: #0f2219; border-radius: 8px; padding: 8px; }
+    .metric-card {
+        background: linear-gradient(135deg, #0f2219 0%, #0d1f17 100%);
+        border: 1px solid #2d5a3d;
+        border-radius: 10px;
+        padding: 16px;
+        text-align: center;
+    }
+    .stSelectbox > div > div { background-color: #0f2219; }
+</style>
+""", unsafe_allow_html=True)
+
+# ---------------------------------------------------------------------------
 # Load model and team stats
 # ---------------------------------------------------------------------------
 @st.cache_resource
@@ -60,33 +87,6 @@ cal_model  = model_data["model"]
 features   = model_data["features"]
 team_stats = load_team_stats()
 teams      = sorted(team_stats["team"].dropna().tolist())
-
-# ---------------------------------------------------------------------------
-# Page config
-# ---------------------------------------------------------------------------
-st.set_page_config(
-    page_title="4th Down Conversion Predictor",
-    page_icon="🏈",
-    layout="wide",
-)
-
-# ---------------------------------------------------------------------------
-# Custom CSS
-# ---------------------------------------------------------------------------
-st.markdown("""
-<style>
-    .main { background-color: #0a1628; }
-    .stMetric { background-color: #0f2219; border-radius: 8px; padding: 8px; }
-    .metric-card {
-        background: linear-gradient(135deg, #0f2219 0%, #0d1f17 100%);
-        border: 1px solid #2d5a3d;
-        border-radius: 10px;
-        padding: 16px;
-        text-align: center;
-    }
-    .stSelectbox > div > div { background-color: #0f2219; }
-</style>
-""", unsafe_allow_html=True)
 
 st.title("🏈 4th Down Conversion Predictor")
 st.markdown(
@@ -171,11 +171,9 @@ input_dict = {
     "epa_per_game_roll15":        _get(off_row, "epa_per_game_roll15"),
     "success_rate_roll15":        _get(off_row, "success_rate_roll15",     0.42),
     "points_per_game_roll15":     _get(off_row, "points_per_game_roll15",  23.0),
-    "go_conv_rate":               _get(off_row, "go_conv_rate",            0.50),
     "def_epa_per_game_roll15":    _get(def_row, "def_epa_per_game_roll15"),
     "def_success_rate_roll15":    _get(def_row, "def_success_rate_roll15", 0.42),
     "def_points_per_game_roll15": _get(def_row, "def_points_per_game_roll15", 23.0),
-    "go_stop_rate":               _get(def_row, "go_stop_rate",            0.50),
 }
 
 # Only pass features the model was trained on (in correct order)
@@ -187,15 +185,15 @@ prob      = cal_model.predict_proba(input_df)[0][1]
 # Color helpers
 # ---------------------------------------------------------------------------
 def prob_color(p):
-    if p >= 0.60:
+    if p >= 0.58:
         return "#4ade80", "#052e16"
-    elif p >= 0.45:
+    elif p >= 0.42:
         return "#f5c518", "#1c1707"
     else:
         return "#f87171", "#1c0707"
 
 color, bg = prob_color(prob)
-verdict = "Likely to Convert" if prob >= 0.60 else "Toss-Up" if prob >= 0.45 else "Unlikely to Convert"
+verdict = "Likely to Convert" if prob >= 0.58 else "Toss-Up" if prob >= 0.42 else "Unlikely to Convert"
 
 # ---------------------------------------------------------------------------
 # Row 1: Gauge + Sensitivity strip + Quick stats
@@ -218,9 +216,9 @@ with col_gauge:
             "borderwidth": 2,
             "bordercolor": "#2d5a3d",
             "steps": [
-                {"range": [0, 45],  "color": "#1c0707"},
-                {"range": [45, 60], "color": "#1c1707"},
-                {"range": [60, 100],"color": "#052e16"},
+                {"range": [0, 42],  "color": "#1c0707"},
+                {"range": [42, 58], "color": "#1c1707"},
+                {"range": [58, 100],"color": "#052e16"},
             ],
             "threshold": {
                 "line": {"color": "#ffffff", "width": 3},
@@ -331,7 +329,7 @@ with col_heat:
         colorbar=dict(
             title="Conv %", ticksuffix="%",
             tickfont={"color": "#8aaa96"},
-            titlefont={"color": "#8aaa96"},
+            title_font={"color": "#8aaa96"},
         ),
         showscale=True,
     ))
@@ -458,11 +456,9 @@ for team in teams:
             "epa_per_game_roll15":        _get(t_row, "epa_per_game_roll15"),
             "success_rate_roll15":        _get(t_row, "success_rate_roll15",     0.42),
             "points_per_game_roll15":     _get(t_row, "points_per_game_roll15",  23.0),
-            "go_conv_rate":               _get(t_row, "go_conv_rate",            0.50),
             "def_epa_per_game_roll15":    _get(def_row, "def_epa_per_game_roll15"),
             "def_success_rate_roll15":    _get(def_row, "def_success_rate_roll15", 0.42),
             "def_points_per_game_roll15": _get(def_row, "def_points_per_game_roll15", 23.0),
-            "go_stop_rate":               _get(def_row, "go_stop_rate",            0.50),
         }
         t_avail = {k: v for k, v in t_dict.items() if k in features}
         t_df    = pd.DataFrame([t_avail])[features]

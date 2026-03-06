@@ -125,12 +125,15 @@ CANDIDATE_FEATURE_COLS: list[str] = [
     "epa_per_game_roll15",          # EPA per drive
     "success_rate_roll15",          # play success rate
     "points_per_game_roll15",       # points scored per game
-    "go_conv_rate",                 # rolling 4th-down conversion rate
+    # NOTE: go_conv_rate and go_stop_rate intentionally excluded.
+    # They are season-level 4th-down rates with tiny sample sizes (many teams have
+    # 0 or 1 attempts per snapshot), dominate the model (70% combined importance),
+    # and produce out-of-distribution predictions (0% or 100%) in the app.
+    # Team quality is already captured by the rolling offensive/defensive stats below.
     # Defensive rolling stats
     "def_epa_per_game_roll15",      # EPA per drive allowed
     "def_success_rate_roll15",      # success rate allowed
     "def_points_per_game_roll15",   # points allowed per game
-    "go_stop_rate",                 # rolling 4th-down stop rate
 ]
 
 TARGET = "target"
@@ -153,11 +156,9 @@ _LEAGUE_AVG: dict[str, float] = {
     "epa_per_game_roll15":          0.00,
     "success_rate_roll15":          0.42,
     "points_per_game_roll15":      23.0,
-    "go_conv_rate":                 0.50,
     "def_epa_per_game_roll15":      0.00,
     "def_success_rate_roll15":      0.42,
     "def_points_per_game_roll15":  23.0,
-    "go_stop_rate":                 0.50,
 }
 
 
@@ -226,7 +227,7 @@ def build_training_data(data_path: Path = DATA_PATH) -> pd.DataFrame:
 
 def train(
     df: pd.DataFrame,
-    n_search_iter: int = 60,
+    n_search_iter: int = 80,
 ) -> tuple[object, list[str], dict]:
     """
     Tune and train the 4th-down conversion model.
@@ -290,11 +291,11 @@ def train(
     )
     param_dist = {
         "n_estimators":     [400, 600, 800, 1000],
-        "max_depth":        [3, 4, 5],
-        "learning_rate":    [0.01, 0.03, 0.05, 0.08],
+        "max_depth":        [3, 4, 5, 6],
+        "learning_rate":    [0.01, 0.03, 0.05, 0.08, 0.10],
         "subsample":        [0.7, 0.8, 0.9],
         "colsample_bytree": [0.6, 0.7, 0.8, 1.0],
-        "min_child_weight": [5, 10, 20, 30],
+        "min_child_weight": [3, 5, 10, 20],
         "reg_lambda":       [0.5, 1.0, 2.0, 5.0],
         "gamma":            [0, 0.1, 0.3],
     }
@@ -542,11 +543,9 @@ def predict_conversion_prob(
     epa_per_game_roll15: Optional[float] = None,
     success_rate_roll15: Optional[float] = None,
     points_per_game_roll15: Optional[float] = None,
-    go_conv_rate: Optional[float] = None,
     def_epa_per_game_roll15: Optional[float] = None,
     def_success_rate_roll15: Optional[float] = None,
     def_points_per_game_roll15: Optional[float] = None,
-    go_stop_rate: Optional[float] = None,
     model_path: Path = MODEL_PATH,
 ) -> float:
     """
@@ -624,9 +623,6 @@ def predict_conversion_prob(
         "points_per_game_roll15":
             float(points_per_game_roll15) if points_per_game_roll15 is not None
             else _LEAGUE_AVG["points_per_game_roll15"],
-        "go_conv_rate":
-            float(go_conv_rate) if go_conv_rate is not None
-            else _LEAGUE_AVG["go_conv_rate"],
         "def_epa_per_game_roll15":
             float(def_epa_per_game_roll15) if def_epa_per_game_roll15 is not None
             else _LEAGUE_AVG["def_epa_per_game_roll15"],
@@ -636,9 +632,6 @@ def predict_conversion_prob(
         "def_points_per_game_roll15":
             float(def_points_per_game_roll15) if def_points_per_game_roll15 is not None
             else _LEAGUE_AVG["def_points_per_game_roll15"],
-        "go_stop_rate":
-            float(go_stop_rate) if go_stop_rate is not None
-            else _LEAGUE_AVG["go_stop_rate"],
     }
 
     # Select only the features the saved model was trained on (in order)
