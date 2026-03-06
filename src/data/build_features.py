@@ -9,7 +9,7 @@ Outputs (written to data/processed/):
   team_stats_snapshot.csv     -- latest rolling values per team (used by app.py)
 
 Run this once before training:
-    python src/build_features.py
+    python src/data/build_features.py
 """
 
 from pathlib import Path
@@ -19,11 +19,11 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # Paths (project-relative — no hardcoded machine paths)
 # ---------------------------------------------------------------------------
-_ROOT          = Path(__file__).resolve().parents[1]   # nfl-ot-4th-down-model/
+_ROOT          = Path(__file__).resolve().parents[2]   # nfl-ot-4th-down-model/
 DATA_DIR       = _ROOT / "data"
-DRIVE_PATH     = DATA_DIR / "drive_summary.csv"
-FOURTH_PATH    = DATA_DIR / "fourth_down_with_features.csv"
 PROCESSED      = DATA_DIR / "processed"
+DRIVE_PATH     = PROCESSED / "drive_summary.parquet"
+FOURTH_PATH    = PROCESSED / "fourth_down_with_features.parquet"
 PROCESSED.mkdir(parents=True, exist_ok=True)
 OUT_FOURTH     = PROCESSED / "fourth_down_enhanced.csv"
 OUT_TEAM_STATS = PROCESSED / "team_stats_snapshot.csv"
@@ -35,8 +35,8 @@ MIN_PERIODS = 3    # minimum games before producing a value
 # 1. Load
 # ---------------------------------------------------------------------------
 print("Loading data...")
-ds = pd.read_csv(DRIVE_PATH)
-fd = pd.read_csv(FOURTH_PATH)
+ds = pd.read_parquet(DRIVE_PATH)
+fd = pd.read_parquet(FOURTH_PATH)
 print(f"  drive_summary shape         : {ds.shape}")
 print(f"  fourth_down_features shape  : {fd.shape}")
 print(f"  drive_summary columns       : {list(ds.columns)}")

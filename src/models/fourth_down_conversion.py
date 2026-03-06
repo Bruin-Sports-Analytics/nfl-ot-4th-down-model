@@ -59,9 +59,9 @@ Model
 
 Run order
 ---------
-  1. python src/build_features.py
+  1. python src/data/build_features.py
   2. python -m src.models.fourth_down_conversion
-  3. streamlit run src/app.py
+  3. streamlit run app.py
 """
 
 from __future__ import annotations
@@ -377,7 +377,6 @@ def _make_plots(model, X_train, X_test, y_test, y_prob, features):
     ACCENT = "#4ade80"
     GOLD   = "#f5c518"
     DANGER = "#f87171"
-    BLUE   = "#60a5fa"
     MUTED  = "#8aaa96"
     GRID   = "#1e4a2e"
 
@@ -662,7 +661,7 @@ def main() -> None:
     df = build_training_data()
 
     print("\n[2/3] Training (hyperparameter search + calibration)...")
-    model, feature_cols, metrics = train(df)
+    model, feature_cols, _ = train(df)
     save_model(model, feature_cols)
 
     print("\n[3/3] Example predictions (from saved model):")
