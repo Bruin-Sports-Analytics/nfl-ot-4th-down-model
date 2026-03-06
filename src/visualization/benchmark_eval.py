@@ -39,7 +39,7 @@ from src.models.win_probability import (
 )
 
 _ROOT = Path(__file__).resolve().parents[2]
-_FIG_DIR = _ROOT / "reports" / "figures"
+_FIG_DIR = _ROOT / "reports" / "figures" / "vs_fastr"
 _DATA_DIR = _ROOT / "data" / "raw"
 _MODEL_PATH = _ROOT / "models" / "win_probability_model.pkl"
 
