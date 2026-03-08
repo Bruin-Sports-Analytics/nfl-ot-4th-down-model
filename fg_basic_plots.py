@@ -236,19 +236,22 @@ FEAT_LABELS = {
 }
 labels = [FEAT_LABELS.get(f, f) for f in FEATURE_COLS]
 
-# Sort by gain importance descending
+# Sort by gain importance descending, then drop zero-importance features
 order        = np.argsort(gain_imps)
 sorted_feats = [labels[i] for i in order]
 sorted_gain  = gain_imps[order]
 sorted_perm  = perm_pct[order]
 
-# Colors: gold = top 5 by gain, blue = near-zero, green = rest
+nonzero_mask = sorted_gain >= 0.0001
+sorted_feats = [f for f, m in zip(sorted_feats, nonzero_mask) if m]
+sorted_gain  = sorted_gain[nonzero_mask]
+sorted_perm  = sorted_perm[nonzero_mask]
+
+# Colors: gold = top 5 by gain, green = rest
 bar_colors = []
 for i, imp in enumerate(sorted_gain):
     if i >= len(sorted_feats) - 5:
         bar_colors.append(GOLD)
-    elif imp < 0.001:
-        bar_colors.append(BLUES)     # ⚠ near-zero features
     else:
         bar_colors.append("#2d5a3d")
 
@@ -259,10 +262,8 @@ fig.subplots_adjust(wspace=0.04)
 bars_g = ax_gain.barh(sorted_feats, sorted_gain * 100,
                        color=bar_colors, edgecolor="#1e4a2e", linewidth=0.8)
 for bar, val in zip(bars_g, sorted_gain):
-    label_text = "⚠ no splits" if val < 0.0001 else f"{val:.3%}"
     ax_gain.text(max(val * 100 + 0.1, 0.3), bar.get_y() + bar.get_height() / 2,
-                 label_text, va="center", ha="left", fontsize=8.5,
-                 color=BLUES if val < 0.0001 else WHITE)
+                 f"{val:.3%}", va="center", ha="left", fontsize=8.5, color=WHITE)
 ax_gain.set_xlabel("Gain Importance (% of total)", labelpad=8)
 ax_gain.set_title("XGBoost Gain Importance\n(how often each feature creates splits)", fontsize=10)
 ax_gain.grid(True, axis="x")
@@ -274,8 +275,6 @@ bar_colors_p = []
 for i, imp in enumerate(sorted_gain):
     if i >= len(sorted_feats) - 5:
         bar_colors_p.append(GOLD)
-    elif imp < 0.001:
-        bar_colors_p.append(BLUES)
     else:
         bar_colors_p.append("#2d5a3d")
 
@@ -283,10 +282,8 @@ perm_sorted = sorted_perm
 bars_p = ax_perm.barh(sorted_feats, perm_sorted,
                        color=bar_colors_p, edgecolor="#1e4a2e", linewidth=0.8)
 for bar, val in zip(bars_p, perm_sorted):
-    label_text = "⚠ no effect" if abs(val) < 0.01 else f"{val:.1f}%"
     ax_perm.text(max(val + 0.1, 0.1), bar.get_y() + bar.get_height() / 2,
-                 label_text, va="center", ha="left", fontsize=8.5,
-                 color=BLUES if abs(val) < 0.01 else WHITE)
+                 f"{val:.1f}%", va="center", ha="left", fontsize=8.5, color=WHITE)
 ax_perm.set_xlabel("Permutation Importance (% of total ROC-AUC drop)", labelpad=8)
 ax_perm.set_title("Permutation Importance\n(how much AUC drops when feature is shuffled)", fontsize=10)
 ax_perm.grid(True, axis="x")
@@ -294,16 +291,13 @@ ax_perm.set_axisbelow(True)
 
 # Shared title & legend
 fig.suptitle(
-    "XGBoost FG Probability Model — Feature Importance\n"
-    "⚠  altitude_ft & is_overtime: no tree splits found (too sparse in training data)\n"
-    "    Both features appear in the model but the data does not support a reliable signal.",
-    fontsize=10, color=WHITE, y=1.01, ha="center",
+    "XGBoost FG Probability Model — Feature Importance",
+    fontsize=11, color=WHITE, y=1.01, ha="center",
 )
 
 legend_elements = [
-    mpatches.Patch(facecolor=GOLD,     label="Top 5 by gain"),
-    mpatches.Patch(facecolor="#2d5a3d",label="Other features"),
-    mpatches.Patch(facecolor=BLUES,    label="⚠ Near-zero (sparse)"),
+    mpatches.Patch(facecolor=GOLD,      label="Top 5 by gain"),
+    mpatches.Patch(facecolor="#2d5a3d", label="Other features"),
 ]
 ax_gain.legend(handles=legend_elements, facecolor="#0f2219", edgecolor="#2d5a3d",
                labelcolor=WHITE, loc="lower right", fontsize=8)
@@ -339,15 +333,13 @@ for feat in FEATURE_COLS:
     p_hi = model.predict_proba(row_hi.to_numpy())[0, 1]
     sweep_results[feat] = abs(p_hi - p_lo) * 100  # percentage points
 
-feats_sorted = sorted(sweep_results.items(), key=lambda x: x[1])
+feats_sorted = [(f, e) for f, e in sorted(sweep_results.items(), key=lambda x: x[1]) if e >= 0.01]
 feat_names   = [FEAT_LABELS.get(f, f) for f, _ in feats_sorted]
 feat_effects = [v for _, v in feats_sorted]
 
 eff_colors = []
 for i, (feat, eff) in enumerate(feats_sorted):
-    if eff < 0.01:
-        eff_colors.append(BLUES)
-    elif i >= len(feats_sorted) - 5:
+    if i >= len(feats_sorted) - 5:
         eff_colors.append(GOLD)
     else:
         eff_colors.append(ACCENT)
@@ -357,16 +349,13 @@ bars = ax.barh(feat_names, feat_effects, color=eff_colors,
                edgecolor="#1e4a2e", linewidth=0.8)
 
 for bar, val in zip(bars, feat_effects):
-    label_text = "⚠ 0.0 pp" if val < 0.01 else f"{val:.1f} pp"
     ax.text(max(val + 0.1, 0.1), bar.get_y() + bar.get_height() / 2,
-            label_text, va="center", ha="left", fontsize=9,
-            color=BLUES if val < 0.01 else WHITE)
+            f"{val:.1f} pp", va="center", ha="left", fontsize=9, color=WHITE)
 
 ax.set_xlabel("Predicted Probability Shift (percentage points)  |  5th → 95th percentile", labelpad=8)
 ax.set_title(
     "Feature Sensitivity — How Much Each Feature Moves P(FG Made)\n"
-    "Evaluated at average conditions, sweeping 5th → 95th percentile of training data.\n"
-    "⚠  altitude_ft & is_overtime: no prediction change (model treats them as constant).",
+    "Evaluated at average conditions, sweeping 5th → 95th percentile of training data.",
     fontsize=10, color=WHITE,
 )
 ax.grid(True, axis="x")
@@ -376,7 +365,6 @@ ax.tick_params(axis="y", labelsize=9)
 legend_elements = [
     mpatches.Patch(facecolor=GOLD,   label="Top 5 movers"),
     mpatches.Patch(facecolor=ACCENT, label="Other features"),
-    mpatches.Patch(facecolor=BLUES,  label="⚠ No effect (sparse)"),
 ]
 ax.legend(handles=legend_elements, facecolor="#0f2219", edgecolor="#2d5a3d",
           labelcolor=WHITE, loc="lower right")
@@ -392,15 +380,13 @@ print("Plotting 6/6: Feature importance breakdown (%)...")
 
 total_gain  = gain_imps.sum()
 pct_imps    = (gain_imps / total_gain) * 100
-sorted_pct  = pct_imps[order]
+sorted_pct  = pct_imps[order][nonzero_mask]
 cumulative  = np.cumsum(sorted_pct)
 
 bar_colors2 = []
 for i, imp in enumerate(sorted_gain):
     if i >= len(sorted_feats) - 5:
         bar_colors2.append(GOLD)
-    elif imp < 0.001:
-        bar_colors2.append(BLUES)
     else:
         bar_colors2.append(ACCENT)
 
@@ -413,9 +399,8 @@ ax2.plot(cumulative, sorted_feats, color=DANGER, linewidth=2,
          marker="o", markersize=4, zorder=5)
 
 for i, (feat, pct) in enumerate(zip(sorted_feats, sorted_pct)):
-    label_text = "⚠ 0.0%" if pct < 0.001 else f"{pct:.1f}%"
-    ax1.text(max(pct + 0.1, 0.1), i, label_text, va="center",
-             fontsize=9, color=BLUES if pct < 0.001 else WHITE)
+    ax1.text(max(pct + 0.1, 0.1), i, f"{pct:.1f}%", va="center",
+             fontsize=9, color=WHITE)
 
 ax1.set_xlabel("% of Total Gain Importance", labelpad=8)
 ax2.set_xlabel("Cumulative Importance %", color=DANGER, labelpad=8)
@@ -423,7 +408,7 @@ ax2.tick_params(axis="x", colors=DANGER)
 ax2.set_xlim(0, 108)
 ax1.set_title(
     "Feature Importance Breakdown  |  XGBoost FG Probability Model\n"
-    "% of total gain · ◆ red line = cumulative  |  ⚠ = zero-gain (sparse) features",
+    "% of total gain · red line = cumulative",
     fontsize=10, color=WHITE,
 )
 ax1.grid(True, axis="x")
