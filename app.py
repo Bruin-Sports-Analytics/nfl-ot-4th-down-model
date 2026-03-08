@@ -203,12 +203,8 @@ col_gauge, col_sens, col_stats = st.columns([1, 1, 2])
 with col_gauge:
     # Plotly gauge chart
     fig_gauge = go.Figure(go.Indicator(
-        mode="gauge+number+delta",
+        mode="gauge",
         value=prob * 100,
-        number={"suffix": "%", "font": {"size": 48, "color": color, "family": "monospace"}},
-        delta={"reference": 50, "valueformat": ".1f", "suffix": "%",
-               "increasing": {"color": "#4ade80"}, "decreasing": {"color": "#f87171"}},
-        domain={"x": [0, 1], "y": [0.15, 1]},
         gauge={
             "axis": {"range": [0, 100], "tickwidth": 1, "tickcolor": "#8aaa96",
                      "tickfont": {"color": "#8aaa96"}},
@@ -227,17 +223,25 @@ with col_gauge:
                 "value": 50,
             },
         },
-        title={"text": f"4th & {ydstogo}  ·  {offense} vs {defense}<br>"
-                       f"<span style='color:{color}'>{verdict}</span>",
-               "font": {"size": 14, "color": "#f8f8f2"}},
     ))
     fig_gauge.update_layout(
         paper_bgcolor="#0d1f17",
         font={"color": "#f8f8f2", "family": "monospace"},
-        margin=dict(t=80, b=0, l=30, r=30),
-        height=320,
+        margin=dict(t=20, b=0, l=30, r=30),
+        height=200,
     )
     st.plotly_chart(fig_gauge, use_container_width=True)
+    delta = prob * 100 - 50
+    delta_str = f"{delta:+.1f}% vs 50%"
+    st.markdown(
+        f"<div style='text-align:center; font-family:monospace;'>"
+        f"<span style='font-size:52px; font-weight:bold; color:{color};'>{prob*100:.1f}%</span><br>"
+        f"<span style='font-size:13px; color:#8aaa96;'>{delta_str}</span><br>"
+        f"<span style='font-size:15px; color:{color};'>{verdict}</span><br>"
+        f"<span style='font-size:12px; color:#8aaa96;'>4th & {ydstogo} · {offense} vs {defense}</span>"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
 
 with col_sens:
     st.markdown("**Yards-to-Go Sensitivity**")
