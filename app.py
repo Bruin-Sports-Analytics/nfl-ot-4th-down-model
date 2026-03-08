@@ -9,6 +9,7 @@ Run with:
 
 import joblib
 from pathlib import Path
+from src.models.fourth_down_conversion import _blend_prediction
 
 import numpy as np
 import pandas as pd
@@ -118,7 +119,7 @@ with st.sidebar:
 
     st.divider()
     st.header("Situation")
-    ydstogo  = st.slider("Yards To Go",                       min_value=1,    max_value=10,   value=2)
+    ydstogo  = st.slider("Yards To Go",                        min_value=1,    max_value=10,   value=2)
     yardline = st.slider("Yard Line (from opponent end zone)", min_value=1,    max_value=99,   value=35)
     qtr      = st.selectbox("Quarter", [1, 2, 3, 4, "OT"], index=3)
     qtr_val  = 5 if qtr == "OT" else int(qtr)
@@ -127,13 +128,10 @@ with st.sidebar:
     st.header("Clock & Score")
     score_diff     = st.slider("Score Differential (offense − defense)", min_value=-35, max_value=35,   value=0)
     secs_remaining = st.slider("Seconds Remaining in Game",              min_value=0,   max_value=3600, value=300, step=10)
-    half_secs      = st.slider("Seconds Remaining in Half",              min_value=0,   max_value=1800, value=min(300, secs_remaining), step=10)
 
     st.divider()
     st.header("Game State")
     wp_val      = st.slider("Win Probability (offense)", min_value=0.0, max_value=1.0, value=0.45, step=0.01)
-    off_to      = st.slider("Offense Timeouts",          min_value=0,   max_value=3,   value=2)
-    def_to      = st.slider("Defense Timeouts",          min_value=0,   max_value=3,   value=2)
 
     st.divider()
     st.header("Environment")
@@ -161,10 +159,7 @@ input_dict = {
     "yardline_100":               yardline,
     "score_differential":         score_diff,
     "game_seconds_remaining":     secs_remaining,
-    "half_seconds_remaining":     half_secs,
     "wp":                         wp_val,
-    "posteam_timeouts_remaining": off_to,
-    "defteam_timeouts_remaining": def_to,
     "temp":                       temp,
     "shotgun":                    shotgun_val,
     "no_huddle":                  int(no_huddle),
@@ -179,7 +174,8 @@ input_dict = {
 # Only pass features the model was trained on (in correct order)
 available = {k: v for k, v in input_dict.items() if k in features}
 input_df  = pd.DataFrame([available])[features]
-prob      = cal_model.predict_proba(input_df)[0][1]
+epa_matchup = input_dict.get("epa_per_game_roll15", 0.0) - input_dict.get("def_epa_per_game_roll15", 0.0)
+prob = _blend_prediction(cal_model.predict_proba(input_df)[0][1], ydstogo, epa_matchup)
 
 # ---------------------------------------------------------------------------
 # Color helpers
@@ -201,7 +197,6 @@ verdict = "Likely to Convert" if prob >= 0.58 else "Toss-Up" if prob >= 0.42 els
 col_gauge, col_sens, col_stats = st.columns([1, 1, 2])
 
 with col_gauge:
-    # Plotly gauge chart
     fig_gauge = go.Figure(go.Indicator(
         mode="gauge",
         value=prob * 100,
@@ -249,7 +244,8 @@ with col_sens:
     ytg_probs  = []
     for ytg in ytg_range:
         row2 = available.copy(); row2["ydstogo"] = ytg
-        p2 = cal_model.predict_proba(pd.DataFrame([row2])[features])[0][1]
+        raw2 = cal_model.predict_proba(pd.DataFrame([row2])[features])[0][1]
+        p2 = _blend_prediction(raw2, ytg, epa_matchup)
         ytg_probs.append(p2 * 100)
 
     colors_bar = [prob_color(p / 100)[0] for p in ytg_probs]
@@ -313,10 +309,9 @@ with col_heat:
     for i, ytg in enumerate(ytg_vals):
         for j, yl in enumerate(yard_vals):
             row_h = available.copy()
-            row_h["ydstogo"]     = ytg
-            row_h["yardline_100"] = yl
-            p_h = cal_model.predict_proba(pd.DataFrame([row_h])[features])[0][1]
-            heat_data[i, j] = p_h * 100
+            row_h["ydstogo"] = ytg; row_h["yardline_100"] = yl
+            raw_h = cal_model.predict_proba(pd.DataFrame([row_h])[features])[0][1]
+            heat_data[i, j] = _blend_prediction(raw_h, ytg, epa_matchup) * 100
 
     fig_heat = go.Figure(go.Heatmap(
         z=heat_data,
@@ -338,7 +333,6 @@ with col_heat:
         ),
         showscale=True,
     ))
-    # Highlight current cell
     curr_j = min(range(len(yard_vals)), key=lambda j: abs(yard_vals[j] - yardline))
     curr_i = ydstogo - 1
     fig_heat.add_shape(
@@ -363,13 +357,12 @@ with col_time:
     st.subheader("Score & Time Sensitivity")
     st.caption("How conversion probability shifts with score and clock")
 
-    # Score differential sweep
     score_range = list(range(-21, 22, 3))
     score_probs = []
     for sd in score_range:
         row_s = available.copy(); row_s["score_differential"] = sd
-        p_s = cal_model.predict_proba(pd.DataFrame([row_s])[features])[0][1]
-        score_probs.append(p_s * 100)
+        raw_s = cal_model.predict_proba(pd.DataFrame([row_s])[features])[0][1]
+        score_probs.append(_blend_prediction(raw_s, ydstogo, epa_matchup) * 100)
 
     fig_score = go.Figure()
     fig_score.add_trace(go.Scatter(
@@ -390,19 +383,19 @@ with col_time:
         font={"color": "#f8f8f2", "family": "monospace"},
         margin=dict(t=10, b=40, l=10, r=10),
         height=150,
-        xaxis=dict(title="Score Diff (off − def)", color="#8aaa96", gridcolor="#1e4a2e", zeroline=True, zerolinecolor="#2d5a3d"),
+        xaxis=dict(title="Score Diff (off − def)", color="#8aaa96", gridcolor="#1e4a2e",
+                   zeroline=True, zerolinecolor="#2d5a3d"),
         yaxis=dict(title="Conv %", range=[0, 100], gridcolor="#1e4a2e", color="#8aaa96"),
         showlegend=False,
     )
     st.plotly_chart(fig_score, use_container_width=True)
 
-    # Time remaining sweep (last 15 min of game)
     time_range = list(range(0, 901, 60))
     time_probs = []
     for t in time_range:
         row_t = available.copy(); row_t["game_seconds_remaining"] = t
-        p_t = cal_model.predict_proba(pd.DataFrame([row_t])[features])[0][1]
-        time_probs.append(p_t * 100)
+        raw_t = cal_model.predict_proba(pd.DataFrame([row_t])[features])[0][1]
+        time_probs.append(_blend_prediction(raw_t, ydstogo, epa_matchup) * 100)
 
     fig_time = go.Figure()
     fig_time.add_trace(go.Scatter(
@@ -451,10 +444,7 @@ for team in teams:
             "yardline_100":               yardline,
             "score_differential":         score_diff,
             "game_seconds_remaining":     secs_remaining,
-            "half_seconds_remaining":     half_secs,
             "wp":                         wp_val,
-            "posteam_timeouts_remaining": off_to,
-            "defteam_timeouts_remaining": def_to,
             "temp":                       temp,
             "shotgun":                    shotgun_val,
             "no_huddle":                  int(no_huddle),
@@ -467,16 +457,15 @@ for team in teams:
         }
         t_avail = {k: v for k, v in t_dict.items() if k in features}
         t_df    = pd.DataFrame([t_avail])[features]
-        p_t     = cal_model.predict_proba(t_df)[0][1]
+        t_epa_matchup = t_dict.get("epa_per_game_roll15", 0.0) - t_dict.get("def_epa_per_game_roll15", 0.0)
+        raw_t   = cal_model.predict_proba(t_df)[0][1]
+        p_t     = _blend_prediction(raw_t, ydstogo, t_epa_matchup)
         team_probs.append({"team": team, "prob": p_t * 100})
     except Exception:
         pass
 
 df_teams = pd.DataFrame(team_probs).sort_values("prob", ascending=True)
 bar_colors_teams = [prob_color(p / 100)[0] for p in df_teams["prob"]]
-# Highlight selected offense
-highlight = ["#ffffff" if t == offense else c
-             for t, c in zip(df_teams["team"], bar_colors_teams)]
 
 fig_teams = go.Figure(go.Bar(
     y=df_teams["team"],
@@ -515,8 +504,7 @@ s2.metric("Score Diff",       f"{score_diff:+d}")
 s2.metric("Time Left (game)", f"{secs_remaining // 60}:{secs_remaining % 60:02d}")
 s3.metric("Win Probability",  f"{wp_val:.1%}")
 s3.metric("Formation",        shotgun_sel)
-s4.metric("Off Timeouts",     str(off_to))
-s4.metric("Def Timeouts",     str(def_to))
+
 
 st.divider()
 st.caption(
