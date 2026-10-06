@@ -32,7 +32,8 @@ defensive event rather than a kicker miss.
 **Model:** XGBoost classifier tuned with `RandomizedSearchCV` (60 iterations, 5-fold) on Brier score,
 then **isotonic calibration** (5-fold), because the decision engine multiplies this probability against
 others, so 70% has to mean 70%. The train/test split is stratified by season so every era is in both sets.
-Evaluation reports ROC-AUC, Brier score, and log loss on the held-out 20%.
+On the held-out 20% (1,749 of 8,742 kicks): **ROC-AUC 0.78**, **Brier score 0.104** (vs. 0.122 for
+always predicting the 85.8% league make rate), log loss 0.337.
 
 ![Distance × wind heatmap](outputs/fg_heatmap.png)
 
