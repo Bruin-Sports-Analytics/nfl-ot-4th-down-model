@@ -119,6 +119,25 @@ FEATURE_COLS: list[str] = [
 
 TARGET = "fg_made"
 
+# Monotone constraints (same order as FEATURE_COLS): +1 = can only raise P(make),
+# -1 = can only lower it, 0 = free. Keeps the model physically sensible where data is thin
+# (e.g. a longer kick or a stronger gust never *helps*).
+MONOTONE: dict[str, int] = {
+    "kick_distance": -1,
+    "wind_gust": -1,
+    "wind_gust_x_distance": -1,
+    "is_precipitation": -1,
+    "fg_make_rate_roll6": 1,
+    "kicker_career_make_rate": 1,
+    "altitude_ft": 1,
+}
+MONOTONE_CONSTRAINTS = "(" + ",".join(str(MONOTONE.get(c, 0)) for c in FEATURE_COLS) + ")"
+
+# Past this distance there are too few NFL attempts for the trees (they go flat).
+# Beyond it we hold the model's prediction at the anchor and taper it with a
+# logistic distance slope fitted on all 45+ yd attempts (see fit_tail_slope).
+TAIL_ANCHOR_YDS = 57.0
+
 # ---------------------------------------------------------------------------
 # Distance bucket configuration
 # ---------------------------------------------------------------------------
@@ -472,6 +491,7 @@ def train(
     elif model_type == "gradient_boost":
         print(f"\nRunning RandomizedSearchCV (60 iterations, 5-fold) to tune XGBoost...")
         base = XGBClassifier(
+            monotone_constraints=MONOTONE_CONSTRAINTS,
             random_state=42,
             eval_metric="logloss",
             n_jobs=1,   # outer parallelism via RandomizedSearchCV n_jobs=-1
@@ -501,6 +521,7 @@ def train(
 
         best_base = XGBClassifier(
             **search.best_params_,
+            monotone_constraints=MONOTONE_CONSTRAINTS,
             random_state=42,
             eval_metric="logloss",
             n_jobs=1,
@@ -549,16 +570,41 @@ def train(
     print(f"  Brier score : {metrics['test_brier_score']:.4f}")
     print(f"  Log-loss    : {metrics['test_log_loss']:.4f}")
 
+    metrics["tail_slope"] = fit_tail_slope(clean)
+    print(f"  Long-range logit slope (per yd, 45+ yd): {metrics['tail_slope']:.4f}")
     return model, metrics
+
+
+def fit_tail_slope(clean: pl.DataFrame) -> float:
+    """Logit-per-yard slope of make rate on kicks of 45+ yd (simple logistic fit)."""
+    long = clean.filter(pl.col("kick_distance") >= 45)
+    lr = LogisticRegression(C=1e6, max_iter=1000)
+    lr.fit(long.select("kick_distance").to_numpy(), long[TARGET].to_numpy())
+    return float(lr.coef_[0][0])
+
+
+def _apply_tail(model, X: np.ndarray, slope: float | None) -> np.ndarray:
+    """Predict, holding distance at TAIL_ANCHOR_YDS and tapering beyond it."""
+    if not slope:
+        return model.predict_proba(X)[:, 1]
+    X = X.astype(float).copy()
+    d = X[:, 0].copy()
+    over = np.clip(d - TAIL_ANCHOR_YDS, 0, None)
+    X[:, 0] = np.minimum(d, TAIL_ANCHOR_YDS)
+    X[:, 3] = X[:, 2] * X[:, 0]            # wind_gust_x_distance
+    X[:, 5] = X[:, 4] * X[:, 0]            # temp_x_distance
+    p = np.clip(model.predict_proba(X)[:, 1], 1e-4, 1 - 1e-4)
+    logit = np.log(p / (1 - p)) + slope * over
+    return 1 / (1 + np.exp(-logit))
 
 
 # ---------------------------------------------------------------------------
 # Model persistence
 # ---------------------------------------------------------------------------
 
-def save_model(model, path: Path = MODEL_PATH) -> None:
+def save_model(model, path: Path = MODEL_PATH, tail_slope: float | None = None) -> None:
     joblib.dump(
-        {"model": model, "features": FEATURE_COLS, "target": TARGET},
+        {"model": model, "features": FEATURE_COLS, "target": TARGET, "tail_slope": tail_slope},
         path,
     )
     print(f"\nModel saved → {path}")
@@ -668,7 +714,7 @@ def predict_fg_prob(
         int(is_overtime),
     ]])
 
-    return float(model.predict_proba(X)[0, 1])
+    return float(_apply_tail(model, X, artifact.get("tail_slope"))[0])
 
 
 def predict_fg_prob_batch(
@@ -727,7 +773,7 @@ def predict_fg_prob_batch(
         ])
 
     X = np.array(rows)
-    return model.predict_proba(X)[:, 1].tolist()
+    return _apply_tail(model, X, artifact.get("tail_slope")).tolist()
 
 
 # ---------------------------------------------------------------------------
@@ -745,7 +791,7 @@ def main() -> None:
 
     print("\n[2/3] Training Gradient Boosting model (with hyperparameter tuning)...")
     model, metrics = train(df, model_type="gradient_boost")
-    save_model(model)
+    save_model(model, tail_slope=metrics.get("tail_slope"))
 
     print("\n[3/3] Example predictions (from saved model):")
     examples = [

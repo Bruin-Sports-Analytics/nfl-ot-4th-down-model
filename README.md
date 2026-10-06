@@ -35,6 +35,12 @@ others, so 70% has to mean 70%. The train/test split is stratified by season so 
 On the held-out 20% (1,749 of 8,742 kicks): **ROC-AUC 0.78**, **Brier score 0.104** (vs. 0.122 for
 always predicting the 85.8% league make rate), log loss 0.337.
 
+**Monotone constraints + long-range taper (branch `fg-monotone-tail`).** The trees go flat where data runs out
+(only 77 attempts from 60+ yd since 2016), so the original model gave ~63% for every kick from 57–66 yd. The update:
+- XGBoost `monotone_constraints`: a longer kick, stronger gust, or rain can only lower P(make); better kicker form can only raise it.
+- Past 57 yd, predictions are held at the 57-yd value and tapered with a logistic distance slope fitted on all 45+ yd kicks (−0.081 logit/yd).
+- Same accuracy: held-out ROC-AUC 0.777, Brier 0.104.
+
 ![Distance × wind heatmap](outputs/fg_heatmap.png)
 
 More figures in `outputs/`: feature importance, sensitivity sweeps, scenario comparisons, and make rate
